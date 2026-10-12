@@ -55,6 +55,7 @@ For Claude, browser cookies (the `sessionKey`) are preferred, because they match
 - **Float bar.** An optional always-on-top strip with the same usage.
 - **Providers.** More than 90 providers, including Codex, Claude, Copilot, OpenRouter, Cursor, Gemini, DeepSeek, MiniMax, Kiro, Antigravity, Groq, Qoder and Sakana AI. Each provider has its own source, credentials, cookie import, token accounts, API keys and region settings.
 - **Settings.** A window with a sidebar: General, Usage & Spend, Notifications, Menu Bar, Menu, Advanced, Hooks and About, then one page per provider. Each provider row has a status dot.
+- **Provider status pages.** With **Check provider status** on (the default), the app polls the status pages of providers such as OpenAI, Claude, Copilot, Cursor and Gemini. An incident colors that provider's dot in Settings and adds a line to the tray panel and the tray tooltip.
 - **Per-provider quota warnings.** Each provider can use the global warning thresholds, its own thresholds, or none.
 - **Usage & Spend.** Local cost estimates from Codex and Claude logs and from provider APIs. Turn off **Track costs** to hide them.
 - **Hooks.** Run a local program when a quota runs low, runs out or resets, or when a provider fails or recovers.

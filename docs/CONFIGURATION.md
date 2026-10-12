@@ -97,6 +97,8 @@ See [WINDOWS_PROOF.md](./WINDOWS_PROOF.md#proof-mode).
 
 Disabled providers are dimmed and have no dot.
 
+While **Check provider status** (General) is on, a provider that has a status page shows a service dot instead: green, yellow, orange or red by incident level, gray for maintenance or unknown. See [PROVIDERS.md](./PROVIDERS.md#status-pages).
+
 ## What each pane controls
 
 Each row gives the label, the `settings.json` key and the default for a new install.
@@ -113,6 +115,7 @@ Each row gives the label, the `settings.json` key and the default for a new inst
 | Refresh interval | `refresh_interval_secs`, `adaptive_refresh` | 300 seconds, adaptive on |
 | Refresh when the menu opens | `refresh_all_providers_on_menu_open` | off |
 | Low power mode | `low_power_mode_preference` (`off`, `on`, `automatic`) | `off` |
+| Check provider status | `status_checks_enabled` | on |
 | Open menu (global shortcut) | `global_shortcut` | `Ctrl+Shift+U` |
 
 General also has the **Portable preferences** group with **Export Preferences...**, **Import Preferences...** and **Provider Switcher Shortcuts...**. See [Portable preferences](#portable-preferences) and [Provider switcher keys](#provider-switcher-keys).
@@ -309,7 +312,7 @@ These keys are exported (`ALLOWED_PREFERENCES` in `rust/src/settings/preferences
 
 | Group | Keys |
 | --- | --- |
-| Refresh | `refresh_interval_secs`, `adaptive_refresh`, `refresh_all_providers_on_menu_open`, `low_power_mode_preference` |
+| Refresh | `refresh_interval_secs`, `adaptive_refresh`, `refresh_all_providers_on_menu_open`, `status_checks_enabled`, `low_power_mode_preference` |
 | Notifications | `show_notifications`, `session_quota_notifications_enabled`, `sound_enabled`, `high_usage_threshold`, `critical_usage_threshold`, `predictive_pace_warning_enabled` |
 | Display | `show_pace`, `show_as_used`, `reset_time_relative`, `show_reset_when_exhausted`, `hide_personal_info`, `menu_bar_shows_highest_usage`, `menu_bar_shows_percent`, `menu_bar_icon_style`, `merged_overview_selected_providers`, `quota_warning_markers_visible`, `workday_tick_style`, `tray_icon_mode`, `switcher_shows_icons`, `providers_sorted_alphabetically`, `overview_layout`, `menu_bar_display_mode` |
 | Providers | `provider_order`, `enabled_providers`, `provider_metrics`, `provider_quota_warnings` |

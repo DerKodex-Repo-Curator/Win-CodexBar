@@ -62,6 +62,8 @@ The float bar is an optional always-on-top strip. `floatbar/` owns it. Its windo
 4. Results go into `AppState.provider_cache`.
 5. The shell sends `provider-updated` for each provider and `refresh-complete` at the end. The React hook `useProviders` listens and redraws.
 
+Each refresh also starts a status poll (`status_poller.rs`) while `status_checks_enabled` is on. The poller fetches the status page of each enabled provider that has one, keeps the results in `AppState.provider_statuses`, and sends `provider-statuses-updated` with the full list when a status changes. The React hook `useProviderStatuses` reads it, and the tray tooltip adds a line per incident. See [PROVIDERS.md](./PROVIDERS.md#status-pages).
+
 `auto_refresh.rs` starts refreshes on a timer. The adaptive mode also checks for running coding agents (`coding_activity.rs`).
 
 ### Settings
@@ -74,7 +76,7 @@ The Hooks pane reads and writes `hooks.json` through the commands `get_hooks_con
 
 ### Events
 
-The shell sends these Tauri events (`events.rs`): `surface-mode-changed`, `provider-updated`, `refresh-started`, `refresh-complete`, `update-state-changed`, `locale-changed`, `settings-changed`, `stay-awake-changed`, `codex-accounts-updated` and `login-phase`.
+The shell sends these Tauri events (`events.rs`): `surface-mode-changed`, `provider-updated`, `refresh-started`, `refresh-complete`, `update-state-changed`, `locale-changed`, `settings-changed`, `stay-awake-changed`, `codex-accounts-updated`, `login-phase` and `provider-statuses-updated`.
 
 ### Tray icon
 

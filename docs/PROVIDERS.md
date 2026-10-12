@@ -417,7 +417,24 @@ In the app, use **Settings > Providers**. The sidebar can reorder and toggle pro
 
 ## Status pages
 
-`codexbar usage --status` fetches each provider's status page and adds it to the output. Which providers use a Statuspage page and which use Google's incident feed is set in the provider metadata in code. When that disagrees with upstream URLs, the code wins.
+The app polls provider status pages while **Settings > General > Check provider status** (`status_checks_enabled`, on by default) is on. Each provider refresh starts a poll for the enabled providers that have a status source. One fetch times out after 10 seconds and the whole poll after 15 seconds. A failed fetch keeps the last good status.
+
+Where the status shows:
+
+- **Settings sidebar.** For a provider with a status source, a service dot replaces the fetch-status dot: green for operational, yellow for a partial outage, orange for a major outage, red for a critical issue, gray for maintenance or unknown (also before the first poll). The tooltip reads "Provider service status: ..." with the label.
+- **Tray panel.** While the selected provider has an incident, the menu shows one extra line under the provider actions: the feed's description (or the status label) and when the feed was updated.
+- **Tray icon tooltip.** Each enabled provider with an incident adds a `Provider: label` line under the tooltip title.
+
+The status source per provider is set by `status_source` in `rust/src/status/mod.rs`:
+
+| Source | Providers |
+| --- | --- |
+| Statuspage (`/api/v2/status.json`) | Claude, Codex and OpenAI API (status.openai.com), Copilot (githubstatus.com), Cursor, Factory, Augment, Hugging Face, ZoomMate (zoomstatus.com) |
+| Google Workspace incident feed | Gemini, Antigravity |
+
+Other providers have no status source, so they keep the fetch-status dot and never add an incident line.
+
+`codexbar usage --status` fetches the same sources from the CLI and adds them to the output. In JSON, `status.level` holds the raw value: `none`, `minor`, `major`, `critical`, `maintenance` or `unknown`. When this table and the code disagree, the code wins.
 
 ## Usage & Spend
 
