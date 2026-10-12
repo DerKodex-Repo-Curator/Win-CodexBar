@@ -87,7 +87,7 @@ The shell sends these Tauri events (`events.rs`): `surface-mode-changed`, `provi
 
 Pace compares how much of a window you have used with how much time of it has passed. `commands/bridge/pace.rs` scores it into seven stages, from `far_behind` to `far_ahead`.
 
-Each provider declares what pace it supports in `pace_capability()` in `provider_factory.rs`. The match is exhaustive, so a new provider must state its pace support to compile. A provider that defines no `PACE_CAPABILITY` gets `ProviderPaceCapability::UNSUPPORTED`.
+Session and weekly windows get pace from their length and reset time. Providers that refill on a billing date opt in to reset-window pace: each declares a `PACE_CAPABILITY` in its own module, and `pace_capability()` in `provider_factory.rs` maps every `ProviderId` to it or to `ProviderPaceCapability::UNSUPPORTED`. The match is exhaustive, so a new provider must state its pace support to compile. [PROVIDERS.md](./PROVIDERS.md#pace) lists the rules.
 
 ### CLI
 

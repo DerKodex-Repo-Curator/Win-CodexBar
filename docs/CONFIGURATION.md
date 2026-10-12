@@ -111,7 +111,7 @@ Each row gives the label, the `settings.json` key and the default for a new inst
 | Start at login | `start_at_login` | off |
 | Start minimized | `start_minimized` | off |
 | Refresh interval | `refresh_interval_secs`, `adaptive_refresh` | 300 seconds, adaptive on |
-| Refresh all providers when the menu opens | `refresh_all_providers_on_menu_open` | off |
+| Refresh when the menu opens | `refresh_all_providers_on_menu_open` | off |
 | Low power mode | `low_power_mode_preference` (`off`, `on`, `automatic`) | `off` |
 | Open menu (global shortcut) | `global_shortcut` | `Ctrl+Shift+U` |
 
