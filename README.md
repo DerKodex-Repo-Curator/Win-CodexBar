@@ -164,7 +164,7 @@ You need Rust (stable, `x86_64-pc-windows-msvc`), the Visual Studio C++ build to
 ```powershell
 git clone https://github.com/nesszer/Win-CodexBar.git
 cd Win-CodexBar
-pnpm --dir apps/desktop-tauri install
+pnpm --dir apps/desktop-tauri install --frozen-lockfile
 .\scripts\dev.ps1
 ```
 
