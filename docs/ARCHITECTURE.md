@@ -62,7 +62,7 @@ The float bar is an optional always-on-top strip. `floatbar/` owns it. Its windo
 4. Results go into `AppState.provider_cache`.
 5. The shell sends `provider-updated` for each provider and `refresh-complete` at the end. The React hook `useProviders` listens and redraws.
 
-Each refresh also starts a status poll (`status_poller.rs`) while `status_checks_enabled` is on. The poller fetches the status page of each enabled provider that has one, keeps the results in `AppState.provider_statuses`, and sends `provider-statuses-updated` with the full list when a status changes. The React hook `useProviderStatuses` reads it, and the tray tooltip adds a line per incident. See [PROVIDERS.md](./PROVIDERS.md#status-pages).
+A full provider refresh also starts a status poll (`status_poller.rs`) while `status_checks_enabled` is on (the auto-resume probe does not). The poller fetches the status page of each enabled provider that has one, keeps the results in `AppState.provider_statuses`, and sends `provider-statuses-updated` with the full list when a status changes. The React hook `useProviderStatuses` reads it, and the tray tooltip adds a line per incident. See [PROVIDERS.md](./PROVIDERS.md#status-pages).
 
 `auto_refresh.rs` starts refreshes on a timer. The adaptive mode also checks for running coding agents (`coding_activity.rs`).
 

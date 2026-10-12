@@ -417,7 +417,7 @@ In the app, use **Settings > Providers**. The sidebar can reorder and toggle pro
 
 ## Status pages
 
-The app polls provider status pages while **Settings > General > Check provider status** (`status_checks_enabled`, on by default) is on. Each provider refresh starts a poll for the enabled providers that have a status source. One fetch times out after 10 seconds and the whole poll after 15 seconds. A failed fetch keeps the last good status.
+The app polls provider status pages while **Settings > General > Check provider status** (`status_checks_enabled`, on by default) is on. A full provider refresh starts a status poll for the enabled providers that have a status source. The auto-resume probe (Windows-only, 60-second exact-session watcher) does not poll status. Unforced refreshes skip a provider whose last poll started less than 30 seconds ago; forced refreshes (manual, menu open, settings toggle) always poll. One fetch times out after 10 seconds and the whole poll after 15 seconds. A failed fetch keeps the last good status.
 
 Where the status shows:
 
@@ -434,7 +434,7 @@ The status source per provider is set by `status_source` in `rust/src/status/mod
 
 Other providers have no status source, so they keep the fetch-status dot and never add an incident line.
 
-`codexbar usage --status` fetches the same sources from the CLI and adds them to the output. In JSON, `status.level` holds the raw value: `none`, `minor`, `major`, `critical`, `maintenance` or `unknown`. When this table and the code disagree, the code wins.
+`codexbar usage --status` fetches the same sources from the CLI and adds them to the output. In JSON, `status.level` holds: `operational`, `degraded` (raw `minor`), `major` (raw `major` or `critical`), or `unknown` (raw `maintenance` or `unknown`). When this table and the code disagree, the code wins.
 
 ## Usage & Spend
 
