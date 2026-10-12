@@ -169,6 +169,8 @@ Unit tests and `local-check` don't prove tray, Settings, float bar, theme or Web
 5. **Prove with CUA every time:** `verify_state` for window existence and bounds, real-pixel screenshots through `get_window_state` with `--screenshot-out-file`, and native facts CDP can't see (DWM dark under `auto`, float bar topmost and layered, window frame). CDP screenshots are not proof.
 6. **Attach the proof** to the PR: CDP assertions and CUA screenshots. List what isn't covered, such as tray icon or tray menu pixels. If CUA can't run, say why and attach equivalent manual proof (PR template).
 
+**Reviewing snapshots.** When you ask Astra or Fable to review snapshots of the app, ask it to collage them into one contact sheet first. It then reads one image instead of one per snapshot, which saves a lot of context.
+
 [docs/WINDOWS_PROOF.md](docs/WINDOWS_PROOF.md) has the cua-driver install command (driver usually at `%LOCALAPPDATA%\Programs\Cua\cua-driver\bin\cua-driver.exe`), the CDP target URLs, the cua-driver session rules and the post-install checklist.
 
 ## Commits and PRs
