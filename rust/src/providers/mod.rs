@@ -315,6 +315,16 @@ pub(crate) fn browser_cookie_sessions(
     )
 }
 
+/// [`browser_cookie_sessions`] for a path that has no `FetchContext` because
+/// its caller already decided that browser import is allowed.
+pub(crate) fn unscoped_browser_cookie_sessions(domains: &[&str]) -> BrowserCookieSessions {
+    BrowserCookieSessions {
+        scan: Some(crate::browser::session_scan::BrowserCookieScan::new(
+            domains,
+        )),
+    }
+}
+
 pub(crate) fn browser_cookie_sessions_from<S: crate::browser::session_scan::BrowserCookieStore>(
     store: S,
     ctx: &crate::core::FetchContext,
