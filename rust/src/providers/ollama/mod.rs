@@ -484,9 +484,22 @@ impl OllamaProvider {
     /// Only that element is read, matching upstream CodexBar: a page-wide scan would
     /// pick up unrelated addresses (footer/support links). A missing header yields no email.
     fn parse_account_email(&self, html: &str) -> Option<String> {
-        // Leading whitespace anchors a real `id` attribute so `data-id="header-email"` cannot match.
-        let re = Regex::new(r#"\sid="header-email"[^>]*>([^<]+)<"#).ok()?;
-        let raw = re.captures(html)?.get(1)?.as_str().trim();
+        // Walk start tags attribute by attribute: a quoted value is consumed whole, so text
+        // such as `data-x=' id="header-email"'` or `data-id="header-email"` cannot match.
+        let tag_re = Regex::new(
+            r#"<[A-Za-z][A-Za-z0-9:-]*((?:\s+[^\s=>/"']+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']+))?)*)\s*/?>([^<]*)"#,
+        )
+        .ok()?;
+        let attr_re =
+            Regex::new(r#"([^\s=>/"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+)))?"#).ok()?;
+        let raw = tag_re.captures_iter(html).find_map(|tag| {
+            let is_header = attr_re.captures_iter(tag.get(1)?.as_str()).any(|attr| {
+                let value = attr.get(2).or(attr.get(3)).or(attr.get(4));
+                attr[1].eq_ignore_ascii_case("id")
+                    && value.is_some_and(|v| v.as_str() == "header-email")
+            });
+            is_header.then(|| tag.get(2).map_or("", |m| m.as_str()).trim())
+        })?;
         raw.contains('@').then(|| raw.to_string())
     }
 }
@@ -1302,6 +1315,20 @@ mod tests {
             provider
                 .parse_account_email(r#"<span data-id="header-email">other@example.com</span>"#),
             None
+        );
+        assert_eq!(
+            provider.parse_account_email(
+                r#"<span data-x=' id="header-email"'>other@example.com</span>"#
+            ),
+            None
+        );
+        assert_eq!(
+            provider
+                .parse_account_email(
+                    r#"<span data-x=' id="header-email"'>other@example.com</span><h2 class="a" id='header-email'>user@example.com</h2>"#
+                )
+                .as_deref(),
+            Some("user@example.com")
         );
     }
 
