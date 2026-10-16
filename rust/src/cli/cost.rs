@@ -112,6 +112,15 @@ const PARTIAL_HISTORY_NOTICE: &str = "  Coverage: partial (history catch-up in p
 
 /// Run the cost command
 pub async fn run(args: CostArgs) -> anyhow::Result<()> {
+    run_with_settings(args, Settings::load).await
+}
+
+/// `load_settings` runs only once a mode needs saved settings; tests inject
+/// defaults so they never read the user's real settings file.
+async fn run_with_settings(
+    args: CostArgs,
+    load_settings: impl FnOnce() -> Settings,
+) -> anyhow::Result<()> {
     let format = if args.json {
         OutputFormat::Json
     } else {
@@ -143,7 +152,7 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
         .await;
     }
 
-    let settings = Settings::load();
+    let settings = load_settings();
     let host_summary = args.remote.is_some() || args.summary_only;
     let period = resolve_period(
         args.days,
@@ -352,6 +361,19 @@ struct CostResult {
     token_history: Option<crate::spend_contract::LocalTokenHistorySummary>,
 }
 
+/// Appends one formatted line to a text report buffer.
+macro_rules! outln {
+    ($out:expr) => {
+        $out.push('\n')
+    };
+    ($out:expr, $($arg:tt)*) => {{
+        $out.push_str(&format!($($arg)*));
+        $out.push('\n');
+    }};
+}
+
+type WorkspacesIndexFor<'a> = &'a dyn Fn(u32) -> crate::codex_workspaces::CodexWorkspacesIndex;
+
 /// Print text output
 fn print_text_output(
     results: &[CostResult],
@@ -360,114 +382,149 @@ fn print_text_output(
     group_by: CostGroupBy,
     hide_personal_info: bool,
 ) {
-    let label = period.label();
     for (i, result) in results.iter().enumerate() {
-        let title = if result.token_history.is_some() {
-            format!("{} Token History ({label})", result.display_name)
-        } else {
-            format!("{} Cost ({label})", result.display_name)
-        };
-        if use_color {
-            println!("\x1b[1m{title}\x1b[0m");
-        } else {
-            println!("{title}");
-        }
-
-        if group_by == CostGroupBy::Project && result.provider == "codex" {
-            print_codex_project_output(result, period, hide_personal_info);
-        } else if group_by == CostGroupBy::Project {
-            println!("  Project grouping is only available for Codex local projects");
-        } else if let Some(history) = result.token_history.as_ref() {
-            print_local_token_history(history);
-        } else if group_by == CostGroupBy::Session && result.provider == "codex" {
-            print_codex_session_output(result, period);
-        } else if group_by == CostGroupBy::Session {
-            println!("  Session grouping is only available for Codex local conversations");
-        } else if !result.supported {
-            println!("  Local cost scanning not available for this provider");
-            println!("  (Only Codex and Claude have local logs)");
-        } else if result.summary.sessions_count == 0 {
-            if result.summary.incomplete_request_count > 0 {
-                // Only preliminary proxy rows exist: usage is unavailable, not $0.
-                println!("  No completed usage data found");
-                print_incomplete_note(result.summary.incomplete_request_count);
-            } else if result.summary.known_zero {
-                println!("  No usage in the selected period (scan complete)");
-            } else {
-                println!("  No usage data found");
-                println!("  Check that you have used {} locally", result.display_name);
-            }
-        } else {
-            // Total cost
-            let incomplete_suffix = incomplete_suffix(result.summary.incomplete_request_count);
-            if use_color {
-                println!(
-                    "  Total:    \x1b[32m{}\x1b[0m{incomplete_suffix}",
-                    result.summary.format_total()
-                );
-            } else {
-                println!(
-                    "  Total:    {}{incomplete_suffix}",
-                    result.summary.format_total()
-                );
-            }
-
-            // Token breakdown
-            println!(
-                "  Tokens:   {} input, {} output, {} cached",
-                format_number(result.summary.input_tokens),
-                format_number(result.summary.output_tokens),
-                format_number(result.summary.cached_tokens)
-            );
-
-            // Sessions
-            println!("  Sessions: {}", result.summary.sessions_count);
-            print_incomplete_note(result.summary.incomplete_request_count);
-
-            // Cost by model
-            if !result.summary.by_model.is_empty() {
-                println!("  By model:");
-                let mut models: Vec<_> = result.summary.by_model.iter().collect();
-                models.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-                for (model, cost) in models {
-                    println!("    {}: ${:.2}", model, cost);
-                }
-            }
-
-            if !result.summary.by_speed.is_empty() {
-                println!("  Codex speed:");
-                for bucket in ["standard", "fast"] {
-                    if let Some(cost) = result.summary.by_speed.get(bucket) {
-                        let tokens = result
-                            .summary
-                            .by_speed_tokens
-                            .get(bucket)
-                            .map(|counts| format_number(counts.total()))
-                            .unwrap_or_else(|| "0".to_string());
-                        println!("    {}: ${:.2} ({} tokens)", bucket, cost, tokens);
-                    }
-                }
-            }
-
-            // F18 (upstream 0.48.0): label partial pricing completeness.
-            if let crate::cost_scanner::ModelPricingCompleteness::Partial { unpriced_models } =
-                &result.summary.model_pricing_completeness
-                && !unpriced_models.is_empty()
-            {
-                println!(
-                    "  Pricing:  partial (unpriced: {})",
-                    unpriced_models.join(", ")
-                );
-            }
-
-            // A16 (upstream 0.48.0): coverage status for Codex.
-            if result.provider == "codex" && !result.summary.history_coverage_established {
-                println!("{PARTIAL_HISTORY_NOTICE}");
-            }
-        }
-
+        let mut out = String::new();
+        render_result_text(
+            &mut out,
+            result,
+            use_color,
+            period,
+            group_by,
+            hide_personal_info,
+            &crate::codex_workspaces::CodexWorkspacesIndex::new,
+        );
         if i < results.len() - 1 {
-            println!();
+            outln!(out);
+        }
+        print!("{out}");
+    }
+}
+
+fn render_result_text(
+    out: &mut String,
+    result: &CostResult,
+    use_color: bool,
+    period: CostReportingPeriod,
+    group_by: CostGroupBy,
+    hide_personal_info: bool,
+    workspaces: WorkspacesIndexFor<'_>,
+) {
+    let label = period.label();
+    let title = if result.token_history.is_some() {
+        format!("{} Token History ({label})", result.display_name)
+    } else {
+        format!("{} Cost ({label})", result.display_name)
+    };
+    if use_color {
+        outln!(out, "\x1b[1m{title}\x1b[0m");
+    } else {
+        outln!(out, "{title}");
+    }
+
+    if group_by == CostGroupBy::Project && result.provider == "codex" {
+        render_codex_project_output(out, result, period, hide_personal_info, workspaces);
+    } else if group_by == CostGroupBy::Project {
+        outln!(
+            out,
+            "  Project grouping is only available for Codex local projects"
+        );
+    } else if let Some(history) = result.token_history.as_ref() {
+        render_local_token_history(out, history);
+    } else if group_by == CostGroupBy::Session && result.provider == "codex" {
+        render_codex_session_output(out, result, period, workspaces);
+    } else if group_by == CostGroupBy::Session {
+        outln!(
+            out,
+            "  Session grouping is only available for Codex local conversations"
+        );
+    } else if !result.supported {
+        outln!(out, "  Local cost scanning not available for this provider");
+        outln!(out, "  (Only Codex and Claude have local logs)");
+    } else if result.summary.sessions_count == 0 {
+        if result.summary.incomplete_request_count > 0 {
+            // Only preliminary proxy rows exist: usage is unavailable, not $0.
+            outln!(out, "  No completed usage data found");
+            render_incomplete_note(out, result.summary.incomplete_request_count);
+        } else if result.summary.known_zero {
+            outln!(out, "  No usage in the selected period (scan complete)");
+        } else {
+            outln!(out, "  No usage data found");
+            outln!(
+                out,
+                "  Check that you have used {} locally",
+                result.display_name
+            );
+        }
+    } else {
+        // Total cost
+        let incomplete_suffix = incomplete_suffix(result.summary.incomplete_request_count);
+        if use_color {
+            outln!(
+                out,
+                "  Total:    \x1b[32m{}\x1b[0m{incomplete_suffix}",
+                result.summary.format_total()
+            );
+        } else {
+            outln!(
+                out,
+                "  Total:    {}{incomplete_suffix}",
+                result.summary.format_total()
+            );
+        }
+
+        // Token breakdown
+        outln!(
+            out,
+            "  Tokens:   {} input, {} output, {} cached",
+            format_number(result.summary.input_tokens),
+            format_number(result.summary.output_tokens),
+            format_number(result.summary.cached_tokens)
+        );
+
+        // Sessions
+        outln!(out, "  Sessions: {}", result.summary.sessions_count);
+        render_incomplete_note(out, result.summary.incomplete_request_count);
+
+        // Cost by model
+        if !result.summary.by_model.is_empty() {
+            outln!(out, "  By model:");
+            let mut models: Vec<_> = result.summary.by_model.iter().collect();
+            models.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (model, cost) in models {
+                outln!(out, "    {}: ${:.2}", model, cost);
+            }
+        }
+
+        if !result.summary.by_speed.is_empty() {
+            outln!(out, "  Codex speed:");
+            for bucket in ["standard", "fast"] {
+                if let Some(cost) = result.summary.by_speed.get(bucket) {
+                    let tokens = result
+                        .summary
+                        .by_speed_tokens
+                        .get(bucket)
+                        .map(|counts| format_number(counts.total()))
+                        .unwrap_or_else(|| "0".to_string());
+                    outln!(out, "    {}: ${:.2} ({} tokens)", bucket, cost, tokens);
+                }
+            }
+        }
+
+        // F18 (upstream 0.48.0): label partial pricing completeness.
+        if let crate::cost_scanner::ModelPricingCompleteness::Partial { unpriced_models } =
+            &result.summary.model_pricing_completeness
+            && !unpriced_models.is_empty()
+        {
+            outln!(
+                out,
+                "  Pricing:  partial (unpriced: {})",
+                unpriced_models.join(", ")
+            );
+        }
+
+        // A16 (upstream 0.48.0): coverage status for Codex.
+        if result.provider == "codex" && !result.summary.history_coverage_established {
+            outln!(out, "{PARTIAL_HISTORY_NOTICE}");
         }
     }
 }
@@ -478,70 +535,101 @@ fn incomplete_suffix(count: u32) -> &'static str {
     if count > 0 { " · Incomplete" } else { "" }
 }
 
-fn print_incomplete_note(count: u32) {
+fn render_incomplete_note(out: &mut String, count: u32) {
     if count > 0 {
-        println!(
+        outln!(
+            out,
             "  Incomplete: {count} requests lacked final usage and were excluded from tokens and cost."
         );
     }
 }
 
-fn print_local_token_history(history: &crate::spend_contract::LocalTokenHistorySummary) {
+fn render_local_token_history(
+    out: &mut String,
+    history: &crate::spend_contract::LocalTokenHistorySummary,
+) {
     use crate::spend_contract::LocalHistoryCoverage;
     match history.coverage {
         LocalHistoryCoverage::Partial if history.lower_bound => {
-            println!(
+            outln!(
+                out,
                 "  Tokens:   at least {} (lower bound; scan stopped short)",
                 format_number(history.total_tokens)
             );
-            println!("  Sessions: at least {}", history.session_count);
+            outln!(out, "  Sessions: at least {}", history.session_count);
         }
         LocalHistoryCoverage::Complete if history.total_tokens == 0 => {
-            println!("  No token usage in the selected period (scan complete)");
+            outln!(
+                out,
+                "  No token usage in the selected period (scan complete)"
+            );
         }
         LocalHistoryCoverage::Complete => {
-            println!("  Tokens:   {} total", format_number(history.total_tokens));
-            println!("  Sessions: {}", history.session_count);
+            outln!(
+                out,
+                "  Tokens:   {} total",
+                format_number(history.total_tokens)
+            );
+            outln!(out, "  Sessions: {}", history.session_count);
         }
         LocalHistoryCoverage::Partial | LocalHistoryCoverage::Unavailable => {
-            println!("  Local token history is unavailable or incomplete");
+            outln!(out, "  Local token history is unavailable or incomplete");
         }
     }
     if let Some(cost) = history.total_usd() {
-        println!("  API list-price estimate: ${cost:.2} (not billed spend)");
+        outln!(
+            out,
+            "  API list-price estimate: ${cost:.2} (not billed spend)"
+        );
     } else if let Some(cost) = history.cost_estimate.known_subtotal_usd {
         if history.coverage == LocalHistoryCoverage::Complete {
-            println!(
+            outln!(
+                out,
                 "  Known API list-price subtotal: ${cost:.2} ({} unpriced requests)",
                 history.cost_estimate.coverage.unpriced
             );
         } else {
-            println!("  Known API list-price subtotal: at least ${cost:.2} (history incomplete)");
+            outln!(
+                out,
+                "  Known API list-price subtotal: at least ${cost:.2} (history incomplete)"
+            );
         }
     } else {
-        println!("  Local token history; dollar costs unavailable");
+        outln!(out, "  Local token history; dollar costs unavailable");
     }
 }
 
-fn print_codex_session_output(result: &CostResult, period: CostReportingPeriod) {
+fn render_codex_session_output(
+    out: &mut String,
+    result: &CostResult,
+    period: CostReportingPeriod,
+    workspaces: WorkspacesIndexFor<'_>,
+) {
     // The conversation index keeps rolling 1..=365 day windows, so All lists
     // the most recent year; the heading below reports the window it used.
-    let index = crate::codex_workspaces::CodexWorkspacesIndex::new(rolling_window_days(period));
+    let index = workspaces(rolling_window_days(period));
     let snapshot = match index.load_snapshot(false, |_| {}) {
         Ok(snapshot) => snapshot,
         Err(err) => {
-            println!("  Conversation history unavailable: {err}");
+            outln!(out, "  Conversation history unavailable: {err}");
             return;
         }
     };
 
-    println!("  Conversations (last {} days):", snapshot.history_days);
+    outln!(
+        out,
+        "  Conversations (last {} days):",
+        snapshot.history_days
+    );
     if snapshot.source_status.is_partial() {
-        println!("  Conversation history is incomplete while local indexing catches up.");
+        outln!(
+            out,
+            "  Conversation history is incomplete while local indexing catches up."
+        );
     }
 
     if snapshot.sessions.is_empty() {
-        println!("  —");
+        outln!(out, "  —");
     } else {
         for session in &snapshot.sessions {
             let id = short_session_id(&session.id);
@@ -551,12 +639,14 @@ fn print_codex_session_output(result: &CostResult, period: CostReportingPeriod) 
                 format!("${:.2}", session.cost_estimate.known_usd)
             };
             let model = session.top_model.as_deref().unwrap_or("unknown model");
-            println!(
+            outln!(
+                out,
                 "  Session {id}: {cost} · {} tokens · {model}",
                 format_number(session.totals.total_tokens)
             );
             if let Some(activity) = session.latest_activity {
-                println!(
+                outln!(
+                    out,
                     "    {}",
                     activity
                         .with_timezone(&chrono::Local)
@@ -567,17 +657,25 @@ fn print_codex_session_output(result: &CostResult, period: CostReportingPeriod) 
     }
 
     if !result.summary.history_coverage_established {
-        println!("  Coverage: partial (cost history catch-up in progress)");
+        outln!(
+            out,
+            "  Coverage: partial (cost history catch-up in progress)"
+        );
     }
-    println!("  Not a subscription bill or plan value · local usage × public API prices");
+    outln!(
+        out,
+        "  Not a subscription bill or plan value · local usage × public API prices"
+    );
 }
 
-fn print_codex_project_output(
+fn render_codex_project_output(
+    out: &mut String,
     result: &CostResult,
     period: CostReportingPeriod,
     hide_personal_info: bool,
+    workspaces: WorkspacesIndexFor<'_>,
 ) {
-    let index = crate::codex_workspaces::CodexWorkspacesIndex::new(rolling_window_days(period));
+    let index = workspaces(rolling_window_days(period));
     let snapshot = index.load_snapshot(false, |_| {}).map(|mut snapshot| {
         if hide_personal_info {
             snapshot.redact_for_privacy();
@@ -585,7 +683,7 @@ fn print_codex_project_output(
         snapshot
     });
     for line in render_codex_project_lines(result.summary.history_coverage_established, &snapshot) {
-        println!("{line}");
+        outln!(out, "{line}");
     }
 }
 
@@ -1249,3 +1347,7 @@ mod tests {
         assert!(text.contains("Day boundaries: UTC"));
     }
 }
+
+#[cfg(test)]
+#[path = "cost_golden_tests.rs"]
+mod golden_tests;
