@@ -484,7 +484,8 @@ impl OllamaProvider {
     /// Only that element is read, matching upstream CodexBar: a page-wide scan would
     /// pick up unrelated addresses (footer/support links). A missing header yields no email.
     fn parse_account_email(&self, html: &str) -> Option<String> {
-        let re = Regex::new(r#"id="header-email"[^>]*>([^<]+)<"#).ok()?;
+        // Leading whitespace anchors a real `id` attribute so `data-id="header-email"` cannot match.
+        let re = Regex::new(r#"\sid="header-email"[^>]*>([^<]+)<"#).ok()?;
         let raw = re.captures(html)?.get(1)?.as_str().trim();
         raw.contains('@').then(|| raw.to_string())
     }
@@ -1283,6 +1284,23 @@ mod tests {
         let provider = OllamaProvider::new();
         assert_eq!(
             provider.parse_account_email(r#"<h2 id="header-email">  Signed in  </h2>"#),
+            None
+        );
+    }
+
+    #[test]
+    fn account_email_ignores_data_id_lookalike() {
+        let provider = OllamaProvider::new();
+        assert_eq!(
+            provider.parse_account_email(
+                r#"<span data-id="header-email">other@example.com</span><h2 id="header-email">user@example.com</h2>"#
+            )
+            .as_deref(),
+            Some("user@example.com")
+        );
+        assert_eq!(
+            provider
+                .parse_account_email(r#"<span data-id="header-email">other@example.com</span>"#),
             None
         );
     }
