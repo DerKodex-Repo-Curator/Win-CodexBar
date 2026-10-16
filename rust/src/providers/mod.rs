@@ -319,9 +319,7 @@ pub(crate) fn browser_cookie_sessions(
 /// its caller already decided that browser import is allowed.
 pub(crate) fn unscoped_browser_cookie_sessions(domains: &[&str]) -> BrowserCookieSessions {
     BrowserCookieSessions {
-        scan: Some(crate::browser::session_scan::BrowserCookieScan::new(
-            domains,
-        )),
+        scan: Some(crate::browser::session_scan::BrowserCookieScan::new(domains).browser_major()),
     }
 }
 
@@ -331,8 +329,10 @@ pub(crate) fn browser_cookie_sessions_from<S: crate::browser::session_scan::Brow
     domains: &[&str],
 ) -> BrowserCookieSessions<S> {
     BrowserCookieSessions {
-        scan: (!ctx.manual_cookie_missing)
-            .then(|| crate::browser::session_scan::BrowserCookieScan::with_store(store, domains)),
+        scan: (!ctx.manual_cookie_missing).then(|| {
+            crate::browser::session_scan::BrowserCookieScan::with_store(store, domains)
+                .browser_major()
+        }),
     }
 }
 

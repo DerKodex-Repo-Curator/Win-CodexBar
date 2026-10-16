@@ -62,23 +62,35 @@ impl BrowserCookieCandidate {
     }
 }
 
+/// How a multi-domain scan walks the browser × domain grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScanOrder {
+    /// Every browser for the first domain, then every browser for the next.
+    /// The first candidate is exactly the one the older first-match helpers
+    /// returned.
+    #[default]
+    DomainMajor,
+    /// Every domain for the first browser, then every domain for the next, so
+    /// an earlier browser's session is always tried before a later browser's.
+    BrowserMajor,
+}
+
 /// Iterator over browser cookie candidates for a list of domains.
 ///
-/// Order is domain-major: every browser is tried for the first domain before
-/// any browser is tried for the second, so the first candidate is exactly the
-/// one the older first-match helpers returned. Browsers follow
-/// `BrowserType::all()` order, or the explicit order passed to
-/// [`BrowserCookieScan::with_browser_order`]. Browsers without cookies for a
-/// domain, and browsers that fail to read, are skipped. A later domain that
-/// yields the same header from the same browser is skipped too, since it
-/// would only repeat a session the caller already tried.
+/// Order is [`ScanOrder::DomainMajor`] unless [`BrowserCookieScan::browser_major`]
+/// is used. Browsers follow `BrowserType::all()` order, or the explicit order
+/// passed to [`BrowserCookieScan::with_browser_order`]. Browsers without
+/// cookies for a domain, and browsers that fail to read, are skipped. A repeat
+/// of the same header from the same browser under another domain is skipped
+/// too, since it would only repeat a session the caller already tried.
 pub struct BrowserCookieScan<S: BrowserCookieStore = SystemCookieStore> {
     store: S,
     domains: Vec<String>,
     browser_order: Option<Vec<BrowserType>>,
     browsers: Option<Vec<DetectedBrowser>>,
-    domain_index: usize,
-    browser_index: usize,
+    order: ScanOrder,
+    outer_index: usize,
+    inner_index: usize,
     yielded: Vec<(BrowserType, String)>,
     app_bound_encryption_seen: bool,
 }
@@ -98,11 +110,19 @@ impl<S: BrowserCookieStore> BrowserCookieScan<S> {
             domains: domains.iter().map(|domain| (*domain).to_string()).collect(),
             browser_order: None,
             browsers: None,
-            domain_index: 0,
-            browser_index: 0,
+            order: ScanOrder::DomainMajor,
+            outer_index: 0,
+            inner_index: 0,
             yielded: Vec::new(),
             app_bound_encryption_seen: false,
         }
+    }
+
+    /// Try every domain in one browser before moving to the next browser, for
+    /// callers that validate each session and must prefer earlier browsers.
+    pub fn browser_major(mut self) -> Self {
+        self.order = ScanOrder::BrowserMajor;
+        self
     }
 
     /// Restrict the scan to `order` and try those browsers in that order, for
@@ -148,16 +168,24 @@ impl<S: BrowserCookieStore> Iterator for BrowserCookieScan<S> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let browser_count = self.browsers().len();
-        while self.domain_index < self.domains.len() {
-            if self.browser_index >= browser_count {
-                self.domain_index += 1;
-                self.browser_index = 0;
+        let domain_count = self.domains.len();
+        let (outer_count, inner_count) = match self.order {
+            ScanOrder::DomainMajor => (domain_count, browser_count),
+            ScanOrder::BrowserMajor => (browser_count, domain_count),
+        };
+        while self.outer_index < outer_count {
+            if self.inner_index >= inner_count {
+                self.outer_index += 1;
+                self.inner_index = 0;
                 continue;
             }
-            let index = self.browser_index;
-            let browser = self.browsers()[index].clone();
-            self.browser_index += 1;
-            let domain = self.domains[self.domain_index].clone();
+            let (domain_index, browser_index) = match self.order {
+                ScanOrder::DomainMajor => (self.outer_index, self.inner_index),
+                ScanOrder::BrowserMajor => (self.inner_index, self.outer_index),
+            };
+            self.inner_index += 1;
+            let browser = self.browsers()[browser_index].clone();
+            let domain = self.domains[domain_index].clone();
             let browser_name = browser.browser_type.display_name();
 
             match self.store.read_cookies(&browser, &domain) {
@@ -391,6 +419,40 @@ mod tests {
                 (BrowserType::Firefox, "s=2".into()),
             ]
         );
+    }
+
+    #[test]
+    fn browser_major_tries_every_domain_of_an_earlier_browser_first() {
+        let store = FakeCookieStore::default()
+            .cookies(BrowserType::Chrome, "b.test", &[("s", "chrome")])
+            .cookies(BrowserType::Firefox, "a.test", &[("s", "firefox")]);
+
+        let domain_major = BrowserCookieScan::with_store(&store, &["a.test", "b.test"]);
+        assert_eq!(
+            headers(domain_major),
+            vec![
+                (BrowserType::Firefox, "s=firefox".into()),
+                (BrowserType::Chrome, "s=chrome".into()),
+            ]
+        );
+
+        let reads_before = store.reads().len();
+        let mut browser_major =
+            BrowserCookieScan::with_store(&store, &["a.test", "b.test"]).browser_major();
+        let first = browser_major.next().expect("chrome candidate");
+        assert_eq!(first.browser, BrowserType::Chrome);
+        assert_eq!(first.domain, "b.test");
+        // Firefox is not read until Chrome's session is rejected.
+        assert_eq!(
+            store.reads()[reads_before..],
+            [
+                (BrowserType::Chrome, "a.test".to_string()),
+                (BrowserType::Chrome, "b.test".to_string()),
+            ]
+        );
+        let second = browser_major.next().expect("firefox candidate");
+        assert_eq!(second.browser, BrowserType::Firefox);
+        assert!(browser_major.next().is_none());
     }
 
     #[test]
