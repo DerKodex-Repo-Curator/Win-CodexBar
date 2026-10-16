@@ -8,12 +8,12 @@ use super::cost_period::{
     cost_totals_json, resolve_period, rolling_window_days, stamp_period, window_days,
 };
 use super::usage::{OutputFormat, ProviderSelection};
-use crate::codex_costs::{
-    CodexHostCostReport, CodexHostCostsArgs, CodexHostOutcome, IdentifiedUsageArgs,
-    run_codex_host_costs, run_codex_identified_usage,
+use crate::codex_costs::{CodexHostCostReport, CodexHostOutcome};
+use crate::core::format_count as format_number;
+use crate::core::{
+    CostCliExtension, CostCliInvocation, CostCliMode, CostGroupedReportContext, CostGrouping,
+    CostScanOptions, ProviderId, cost_cli_extension_for, cost_cli_extensions,
 };
-use crate::codex_workspaces::short_session_id;
-use crate::core::{CostScanOptions, ProviderId};
 use crate::cost_reporting_period::CostReportingPeriod;
 use crate::cost_scanner::{CostScanner, CostSummary};
 use crate::settings::Settings;
@@ -106,10 +106,6 @@ impl CostGroupBy {
     }
 }
 
-/// Shown by the default and project Codex reports when the local cost scan
-/// has not fully covered the window.
-const PARTIAL_HISTORY_NOTICE: &str = "  Coverage: partial (history catch-up in progress)";
-
 /// Run the cost command
 pub async fn run(args: CostArgs) -> anyhow::Result<()> {
     run_with_settings(args, Settings::load).await
@@ -131,52 +127,41 @@ async fn run_with_settings(
     let group_by = CostGroupBy::from_arg(args.group_by.as_deref());
     let use_color = !args.no_color && is_terminal();
 
-    // The identified window is explicit UTC milliseconds; saved periods and
-    // time zones never apply, so dispatch before resolving the period.
-    if args.identified_only || args.identified_end.is_some() {
-        return run_codex_identified_usage(&IdentifiedUsageArgs {
-            identified_only: args.identified_only,
-            provider_is_codex_only: args
-                .provider
-                .as_deref()
-                .is_some_and(|provider| provider.trim().eq_ignore_ascii_case("codex")),
-            json: format == OutputFormat::Json,
-            days: args.days,
-            end_unix_ms: args.identified_end,
-            remote: args.remote.clone(),
-            period_set: args.period.is_some(),
-            group_by_set: args.group_by.is_some(),
-            summary_only: args.summary_only,
-            pretty: args.pretty,
-        })
-        .await;
+    let selected_providers = providers.as_list();
+    let invocation = CostCliInvocation {
+        provider_arg: args.provider.as_deref(),
+        providers: &selected_providers,
+        json: format == OutputFormat::Json,
+        pretty: args.pretty,
+        days: args.days,
+        period_set: args.period.is_some(),
+        group_by_set: args.group_by.is_some(),
+        remote: args.remote.as_deref(),
+        summary_only: args.summary_only,
+        identified_only: args.identified_only,
+        identified_end: args.identified_end,
+    };
+    // An exclusive mode replaces the report and validates the provider
+    // selection itself, so it is claimed by its flags alone.
+    let exclusive = cost_cli_extensions()
+        .find_map(|extension| Some((extension, extension.exclusive_mode(&invocation)?)));
+    if let Some((extension, mode @ CostCliMode::BeforePeriod)) = exclusive {
+        return extension.run_exclusive_mode(mode, &invocation, None).await;
     }
 
     let settings = load_settings();
-    let host_summary = args.remote.is_some() || args.summary_only;
     let period = resolve_period(
         args.days,
         args.period.as_deref(),
         settings.cost_reporting_period,
-        host_summary,
+        exclusive.is_some(),
     )?;
     let days = window_days(period);
 
-    if host_summary {
-        return run_codex_host_costs(&CodexHostCostsArgs {
-            days,
-            remote: args.remote.clone(),
-            summary_only: args.summary_only,
-            pretty: args.pretty,
-            format: if format == OutputFormat::Json {
-                crate::codex_costs::HostOutputFormat::Json
-            } else {
-                crate::codex_costs::HostOutputFormat::Text
-            },
-            provider_is_codex_only: providers.as_list() == vec![ProviderId::Codex],
-            group_by_rejected: args.group_by.is_some(),
-        })
-        .await;
+    if let Some((extension, mode)) = exclusive {
+        return extension
+            .run_exclusive_mode(mode, &invocation, Some(days))
+            .await;
     }
 
     let mut scan_options = CostScanOptions::app_driven();
@@ -372,7 +357,12 @@ macro_rules! outln {
     }};
 }
 
-type WorkspacesIndexFor<'a> = &'a dyn Fn(u32) -> crate::codex_workspaces::CodexWorkspacesIndex;
+/// Resolves the cost extension for a result's provider CLI name.
+type ExtensionFor<'a> = &'a dyn Fn(&str) -> Option<&'a dyn CostCliExtension>;
+
+fn registered_extension(provider: &str) -> Option<&'static dyn CostCliExtension> {
+    ProviderId::from_cli_name(provider).and_then(cost_cli_extension_for)
+}
 
 /// Print text output
 fn print_text_output(
@@ -391,7 +381,7 @@ fn print_text_output(
             period,
             group_by,
             hide_personal_info,
-            &crate::codex_workspaces::CodexWorkspacesIndex::new,
+            &registered_extension,
         );
         if i < results.len() - 1 {
             outln!(out);
@@ -407,8 +397,19 @@ fn render_result_text(
     period: CostReportingPeriod,
     group_by: CostGroupBy,
     hide_personal_info: bool,
-    workspaces: WorkspacesIndexFor<'_>,
+    extension_for: ExtensionFor<'_>,
 ) {
+    let extension = extension_for(&result.provider);
+    let grouped_report = |grouping| {
+        extension?.grouped_report(
+            grouping,
+            &CostGroupedReportContext {
+                summary: &result.summary,
+                history_days: rolling_window_days(period),
+                hide_personal_info,
+            },
+        )
+    };
     let label = period.label();
     let title = if result.token_history.is_some() {
         format!("{} Token History ({label})", result.display_name)
@@ -421,22 +422,26 @@ fn render_result_text(
         outln!(out, "{title}");
     }
 
-    if group_by == CostGroupBy::Project && result.provider == "codex" {
-        render_codex_project_output(out, result, period, hide_personal_info, workspaces);
-    } else if group_by == CostGroupBy::Project {
-        outln!(
-            out,
-            "  Project grouping is only available for Codex local projects"
-        );
+    // Project grouping is checked before token history so token-history
+    // providers report it unavailable; session grouping is checked after.
+    if group_by == CostGroupBy::Project {
+        match grouped_report(CostGrouping::Project) {
+            Some(lines) => render_lines(out, &lines),
+            None => outln!(
+                out,
+                "  Project grouping is only available for Codex local projects"
+            ),
+        }
     } else if let Some(history) = result.token_history.as_ref() {
         render_local_token_history(out, history);
-    } else if group_by == CostGroupBy::Session && result.provider == "codex" {
-        render_codex_session_output(out, result, period, workspaces);
     } else if group_by == CostGroupBy::Session {
-        outln!(
-            out,
-            "  Session grouping is only available for Codex local conversations"
-        );
+        match grouped_report(CostGrouping::Session) {
+            Some(lines) => render_lines(out, &lines),
+            None => outln!(
+                out,
+                "  Session grouping is only available for Codex local conversations"
+            ),
+        }
     } else if !result.supported {
         outln!(out, "  Local cost scanning not available for this provider");
         outln!(out, "  (Only Codex and Claude have local logs)");
@@ -522,10 +527,15 @@ fn render_result_text(
             );
         }
 
-        // A16 (upstream 0.48.0): coverage status for Codex.
-        if result.provider == "codex" && !result.summary.history_coverage_established {
-            outln!(out, "{PARTIAL_HISTORY_NOTICE}");
+        if let Some(notice) = extension.and_then(|ext| ext.coverage_notice(&result.summary)) {
+            outln!(out, "{notice}");
         }
+    }
+}
+
+fn render_lines(out: &mut String, lines: &[String]) {
+    for line in lines {
+        outln!(out, "{line}");
     }
 }
 
@@ -597,139 +607,6 @@ fn render_local_token_history(
     } else {
         outln!(out, "  Local token history; dollar costs unavailable");
     }
-}
-
-fn render_codex_session_output(
-    out: &mut String,
-    result: &CostResult,
-    period: CostReportingPeriod,
-    workspaces: WorkspacesIndexFor<'_>,
-) {
-    // The conversation index keeps rolling 1..=365 day windows, so All lists
-    // the most recent year; the heading below reports the window it used.
-    let index = workspaces(rolling_window_days(period));
-    let snapshot = match index.load_snapshot(false, |_| {}) {
-        Ok(snapshot) => snapshot,
-        Err(err) => {
-            outln!(out, "  Conversation history unavailable: {err}");
-            return;
-        }
-    };
-
-    outln!(
-        out,
-        "  Conversations (last {} days):",
-        snapshot.history_days
-    );
-    if snapshot.source_status.is_partial() {
-        outln!(
-            out,
-            "  Conversation history is incomplete while local indexing catches up."
-        );
-    }
-
-    if snapshot.sessions.is_empty() {
-        outln!(out, "  —");
-    } else {
-        for session in &snapshot.sessions {
-            let id = short_session_id(&session.id);
-            let cost = if session.cost_estimate.unknown_tokens > 0 {
-                format!("~${:.2} partial", session.cost_estimate.known_usd)
-            } else {
-                format!("${:.2}", session.cost_estimate.known_usd)
-            };
-            let model = session.top_model.as_deref().unwrap_or("unknown model");
-            outln!(
-                out,
-                "  Session {id}: {cost} · {} tokens · {model}",
-                format_number(session.totals.total_tokens)
-            );
-            if let Some(activity) = session.latest_activity {
-                outln!(
-                    out,
-                    "    {}",
-                    activity
-                        .with_timezone(&chrono::Local)
-                        .format("%b %d, %H:%M")
-                );
-            }
-        }
-    }
-
-    if !result.summary.history_coverage_established {
-        outln!(
-            out,
-            "  Coverage: partial (cost history catch-up in progress)"
-        );
-    }
-    outln!(
-        out,
-        "  Not a subscription bill or plan value · local usage × public API prices"
-    );
-}
-
-fn render_codex_project_output(
-    out: &mut String,
-    result: &CostResult,
-    period: CostReportingPeriod,
-    hide_personal_info: bool,
-    workspaces: WorkspacesIndexFor<'_>,
-) {
-    let index = workspaces(rolling_window_days(period));
-    let snapshot = index.load_snapshot(false, |_| {}).map(|mut snapshot| {
-        if hide_personal_info {
-            snapshot.redact_for_privacy();
-        }
-        snapshot
-    });
-    for line in render_codex_project_lines(result.summary.history_coverage_established, &snapshot) {
-        outln!(out, "{line}");
-    }
-}
-
-/// Project report lines (upstream #4472): incomplete history carries the same
-/// partial-history notice as the default report, even with no project rows.
-fn render_codex_project_lines<E: std::fmt::Display>(
-    cost_history_established: bool,
-    snapshot: &Result<crate::codex_workspaces::CodexLocalProjectUsageSnapshot, E>,
-) -> Vec<String> {
-    let mut lines = Vec::new();
-    let catalog_partial = snapshot
-        .as_ref()
-        .is_ok_and(|snapshot| snapshot.source_status.is_partial());
-    if !cost_history_established || catalog_partial {
-        lines.push(PARTIAL_HISTORY_NOTICE.to_string());
-    }
-    let snapshot = match snapshot {
-        Ok(snapshot) => snapshot,
-        Err(err) => {
-            lines.push(format!("  Project history unavailable: {err}"));
-            return lines;
-        }
-    };
-    lines.push(format!("  Projects (last {} days):", snapshot.history_days));
-    if snapshot.projects.is_empty() {
-        lines.push("  —".to_string());
-    }
-    for project in &snapshot.projects {
-        let cost = if project.cost_estimate.unknown_tokens > 0 {
-            format!("~${:.2} partial", project.cost_estimate.known_usd)
-        } else {
-            format!("${:.2}", project.cost_estimate.known_usd)
-        };
-        lines.push(format!(
-            "  {}: {cost} · {} tokens",
-            project.display_name,
-            format_number(project.totals.total_tokens)
-        ));
-        if let Some(path) = project.path.as_deref() {
-            lines.push(format!("    {path}"));
-        }
-    }
-    lines.push(
-        "  Not a subscription bill or plan value · local usage × public API prices".to_string(),
-    );
-    lines
 }
 
 /// Print JSON output
@@ -819,20 +696,6 @@ fn print_json_output(
     println!("{}", output);
 
     Ok(())
-}
-
-/// Format a number with commas
-fn format_number(n: u64) -> String {
-    let s = n.to_string();
-    let mut result = String::new();
-    let chars: Vec<char> = s.chars().collect();
-    for (i, c) in chars.iter().enumerate() {
-        if i > 0 && (chars.len() - i).is_multiple_of(3) {
-            result.push(',');
-        }
-        result.push(*c);
-    }
-    result
 }
 
 /// Check if stdout is a terminal
@@ -1217,83 +1080,6 @@ mod tests {
         assert_eq!(args.identified_end, Some(1_700_000_000_000));
         assert_eq!(args.remote.as_deref(), Some("build-host"));
         assert!(!parse_args(&[]).identified_only);
-    }
-
-    fn project_snapshot(
-        projects: Vec<crate::codex_workspaces::ProjectUsage>,
-    ) -> crate::codex_workspaces::CodexLocalProjectUsageSnapshot {
-        crate::codex_workspaces::CodexLocalProjectUsageSnapshot {
-            updated_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-            history_days: 30,
-            scope_signature: String::new(),
-            indexed_file_count: 0,
-            skipped_file_count: 0,
-            total: Default::default(),
-            sessions: Vec::new(),
-            projects,
-            daily: Vec::new(),
-            source_status: crate::codex_workspaces::SourceStatus::Complete,
-        }
-    }
-
-    #[test]
-    fn project_report_marks_partial_history_even_when_empty() {
-        let empty: Result<_, String> = Ok(project_snapshot(Vec::new()));
-        let partial = render_codex_project_lines(false, &empty);
-        assert_eq!(partial[0], PARTIAL_HISTORY_NOTICE);
-        assert!(partial.contains(&"  Projects (last 30 days):".to_string()));
-        assert!(partial.contains(&"  —".to_string()));
-
-        let complete = render_codex_project_lines(true, &empty);
-        assert!(!complete.iter().any(|line| line == PARTIAL_HISTORY_NOTICE));
-        assert!(complete.contains(&"  —".to_string()));
-
-        let unavailable: Result<crate::codex_workspaces::CodexLocalProjectUsageSnapshot, _> =
-            Err("locked".to_string());
-        let lines = render_codex_project_lines(false, &unavailable);
-        assert_eq!(lines[0], PARTIAL_HISTORY_NOTICE);
-        assert_eq!(lines[1], "  Project history unavailable: locked");
-
-        let mut locked_catalog = project_snapshot(Vec::new());
-        locked_catalog.source_status = crate::codex_workspaces::SourceStatus::CatalogLocked;
-        let lines = render_codex_project_lines(true, &Ok::<_, String>(locked_catalog));
-        assert_eq!(lines[0], PARTIAL_HISTORY_NOTICE);
-        assert_eq!(
-            lines
-                .iter()
-                .filter(|line| *line == PARTIAL_HISTORY_NOTICE)
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn project_report_lists_projects_with_partial_costs() {
-        use crate::codex_workspaces::{CostEstimate, ProjectUsage, UsageTotals};
-        let project = |name: &str, path: Option<&str>, unknown_tokens: u64| ProjectUsage {
-            id: name.to_string(),
-            display_name: name.to_string(),
-            path: path.map(str::to_string),
-            totals: UsageTotals::from_parts(1_000, 0, 234),
-            cost_estimate: CostEstimate {
-                known_usd: 1.5,
-                unknown_tokens,
-            },
-            session_count: 1,
-            latest_activity: None,
-            top_model: None,
-            top_sessions: Vec::new(),
-            is_projectless: false,
-        };
-        let snapshot: Result<_, String> = Ok(project_snapshot(vec![
-            project("alpha", Some("C:\\src\\alpha"), 0),
-            project("beta", None, 10),
-        ]));
-        let lines = render_codex_project_lines(true, &snapshot);
-        assert!(lines.contains(&"  alpha: $1.50 · 1,234 tokens".to_string()));
-        assert!(lines.contains(&"    C:\\src\\alpha".to_string()));
-        assert!(lines.contains(&"  beta: ~$1.50 partial · 1,234 tokens".to_string()));
-        assert!(!lines.iter().any(|line| line == "  —"));
     }
 
     #[test]

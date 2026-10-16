@@ -168,12 +168,16 @@ fn render(
     hide_personal_info: bool,
     fixture: &CodexFixture,
 ) -> String {
-    let home = fixture.home();
-    let sidecar = fixture.root().join("sidecar.sqlite");
-    let workspaces = move |days: u32| {
-        crate::codex_workspaces::CodexWorkspacesIndex::new(days)
-            .with_codex_home(&home)
-            .with_sidecar_path(&sidecar)
+    let codex = crate::codex_costs::CodexCostCli::with_paths(
+        fixture.home(),
+        fixture.root().join("sidecar.sqlite"),
+    );
+    let extension_for = |provider: &str| -> Option<&dyn CostCliExtension> {
+        if provider == "codex" {
+            Some(&codex)
+        } else {
+            registered_extension(provider)
+        }
     };
     let mut text = String::new();
     for (i, result) in results.iter().enumerate() {
@@ -185,7 +189,7 @@ fn render(
             PERIOD,
             group_by,
             hide_personal_info,
-            &workspaces,
+            &extension_for,
         );
         if i < results.len() - 1 {
             out.push('\n');
