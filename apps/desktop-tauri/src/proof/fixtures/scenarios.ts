@@ -33,6 +33,23 @@ export interface ProofScenario {
   providers: ProviderUsageSnapshot[];
   codexAccounts: CodexAccountsStateBridge;
   claudeAccounts: ClaudeAccount[];
+  /** Local-log spend; providers without an entry have no local logs. */
+  localSpend: LocalSpendFixture[];
+}
+
+export interface LocalSpendFixture {
+  providerId: string;
+  daily: number;
+  tokensPerDay: number;
+  model: string;
+}
+
+function codexSpend(): LocalSpendFixture {
+  return { providerId: "codex", daily: 1.84, tokensPerDay: 412_000, model: "gpt-5-codex" };
+}
+
+function claudeSpend(): LocalSpendFixture {
+  return { providerId: "claude", daily: 2.37, tokensPerDay: 289_000, model: "claude-sonnet-4" };
 }
 
 const SESSION_MINUTES = 300;
@@ -234,6 +251,7 @@ function defaultScenario(now: Date): ProofScenario {
     ],
     codexAccounts: singleCodexAccount(now),
     claudeAccounts: claudeAccounts(now),
+    localSpend: [codexSpend(), claudeSpend()],
   };
 }
 
@@ -257,6 +275,7 @@ function twoCodexAccountsScenario(now: Date): ProofScenario {
       },
     },
     claudeAccounts: claudeAccounts(now),
+    localSpend: [codexSpend(), claudeSpend()],
   };
 }
 
@@ -287,6 +306,7 @@ function errorsScenario(now: Date): ProofScenario {
     ],
     codexAccounts: singleCodexAccount(now),
     claudeAccounts: [],
+    localSpend: [codexSpend(), claudeSpend()],
   };
 }
 
@@ -298,6 +318,7 @@ function emptyScenario(): ProofScenario {
     providers: [],
     codexAccounts: emptyCodexAccounts(),
     claudeAccounts: [],
+    localSpend: [],
   };
 }
 

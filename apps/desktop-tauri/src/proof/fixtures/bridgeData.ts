@@ -12,14 +12,8 @@ import type {
   UsageSpendRow,
   UsageSpendSummary,
 } from "../../types/bridge";
-import type { ProofScenario } from "./scenarios";
+import type { LocalSpendFixture, ProofScenario } from "./scenarios";
 import { dayKey } from "./common";
-
-/** Synthetic local spend per provider id; providers absent here have no local logs. */
-const LOCAL_SPEND: Record<string, { daily: number; tokensPerDay: number; model: string }> = {
-  codex: { daily: 1.84, tokensPerDay: 412_000, model: "gpt-5-codex" },
-  claude: { daily: 2.37, tokensPerDay: 289_000, model: "claude-sonnet-4" },
-};
 
 const EMPTY_COVERAGE: CostCoverageCounts = { priced: 0, unpriced: 0, unmetered: 0, estimated: 0 };
 
@@ -123,8 +117,9 @@ export function providerDetail(
   };
 }
 
-function hasLocalSpend(scenario: ProofScenario, providerId: string): boolean {
-  return providerId in LOCAL_SPEND && scenario.settings.enabledProviders.includes(providerId);
+function localSpend(scenario: ProofScenario, providerId: string): LocalSpendFixture | undefined {
+  if (!scenario.settings.enabledProviders.includes(providerId)) return undefined;
+  return scenario.localSpend.find((candidate) => candidate.providerId === providerId);
 }
 
 export function providerChartData(
@@ -132,7 +127,7 @@ export function providerChartData(
   providerId: string,
   now: Date,
 ): ProviderChartData {
-  const spend = hasLocalSpend(scenario, providerId) ? LOCAL_SPEND[providerId] : undefined;
+  const spend = localSpend(scenario, providerId);
   const days = spend ? Array.from({ length: 14 }, (_, index) => 13 - index) : [];
   // A fixed wave keeps the bars varied but identical across reloads.
   const factor = (daysAgo: number) => 0.55 + ((daysAgo * 37) % 10) / 10;
@@ -198,11 +193,11 @@ export function spendContract(providerId: string, reportingPeriod: string): Spen
 
 export function usageSpendSummary(scenario: ProofScenario, now: Date): UsageSpendSummary {
   const reportingPeriod = scenario.settings.spendDashboardPeriod ?? "rolling:30";
-  const rows: UsageSpendRow[] = scenario.catalog
-    .filter((entry) => hasLocalSpend(scenario, entry.id))
-    .map((entry) => {
-      const spend = LOCAL_SPEND[entry.id];
-      return {
+  const rows: UsageSpendRow[] = scenario.catalog.flatMap((entry) => {
+    const spend = localSpend(scenario, entry.id);
+    if (!spend) return [];
+    return [
+      {
         providerId: entry.id,
         displayName: entry.displayName,
         sevenDay: Number((spend.daily * 7).toFixed(2)),
@@ -218,8 +213,9 @@ export function usageSpendSummary(scenario: ProofScenario, now: Date): UsageSpen
           day: dayKey(now, 6 - index),
           amount: spend.daily,
         })),
-      };
-    });
+      },
+    ];
+  });
   return {
     rows,
     contract: spendContract("all", reportingPeriod),
