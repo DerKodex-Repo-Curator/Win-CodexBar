@@ -608,7 +608,7 @@ fn is_terminal() -> bool {
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 #[path = "cost_golden_tests.rs"]
 mod golden_tests;
+#[cfg(test)]
+mod tests;

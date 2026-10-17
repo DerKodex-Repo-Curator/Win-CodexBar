@@ -266,9 +266,7 @@ fn grouping_tolerance_merges_nearby_resets() {
             }
         }
     }
-    assert!(
-        SessionEquivalentBurnEstimator::estimate(&nearby, Some(current_end), now, 7).is_none()
-    );
+    assert!(SessionEquivalentBurnEstimator::estimate(&nearby, Some(current_end), now, 7).is_none());
 
     // Resets that move backward beyond the tolerance are an ordering reject.
     // Each entry is plausible on its own, so only the ordering check can reject them.

@@ -43,8 +43,8 @@ mod preferences_document;
 mod provider_accessors;
 mod provider_workspace;
 mod raw;
-mod start_at_login;
 mod spend_dashboard;
+mod start_at_login;
 mod system_language;
 mod types;
 
