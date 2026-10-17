@@ -56,8 +56,33 @@ function parseArgs(argv) {
   return opts;
 }
 
+// Mirrors rust/src/core/redactor.rs SecretRedactor. Output can carry a
+// caller-supplied CDP URL (remote bridges often take ?token=) or page text.
+const SECRET_PATTERNS = [
+  [/(Bearer\s+)[^\s,;]+/gi, "$1[REDACTED]"],
+  [/((?:cookie|set-cookie)\s*:\s*)[^\r\n]+/gi, "$1[REDACTED]"],
+  [
+    /([?&](?:token|code|device_code|verification_code|authorization_code|client_secret|api_key|access_token|refresh_token)=)[^&#\s]+/gi,
+    "$1[REDACTED]",
+  ],
+  [
+    /("?(?:api_key|apiKey|token|access_token|refresh_token|id_token|oauth_token|device_code|verification_code|authorization_code|client_secret)"?\s*[:=]\s*")[^"]+"/gi,
+    '$1[REDACTED]"',
+  ],
+  [
+    /(\b(?:api_key|access_token|refresh_token|id_token|oauth_token|device_code|verification_code|authorization_code|client_secret|secret|password)\b\s*[:=]\s*)[^\s,;}\]]+/gi,
+    "$1[REDACTED]",
+  ],
+  [/\b(?:sk|ghp|gho|github_pat|zai|nanogpt|openrouter|fk)-[A-Za-z0-9_-]{8,}\b/gi, "[REDACTED]"],
+  [/(\/\/)[^/@\s]+@/g, "$1[REDACTED]@"],
+];
+
+function redact(text) {
+  return SECRET_PATTERNS.reduce((out, [pattern, replacement]) => out.replace(pattern, replacement), String(text));
+}
+
 function fail(code, message) {
-  console.error(`[proof-check] ${message}`);
+  console.error(`[proof-check] ${redact(message)}`);
   process.exit(code);
 }
 
@@ -415,7 +440,7 @@ async function main() {
         console.log(`PASS  ${scenario.name}${shots.length ? `  (${shots.length} screenshot${shots.length > 1 ? "s" : ""})` : ""}`);
       } catch (error) {
         failed++;
-        console.log(`FAIL  ${scenario.name}\n      ${error.message}`);
+        console.log(`FAIL  ${scenario.name}\n      ${redact(error.message)}`);
       }
     }
   } finally {
