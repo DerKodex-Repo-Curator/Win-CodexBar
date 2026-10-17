@@ -177,6 +177,8 @@ export function createProofRouter(
     return { mode: "trayPanel", target: { kind: "summary" } };
   };
 
+  // Fixture builders read settings, so they get the patched copy.
+  const current = (): ProofScenario => ({ ...scenario, settings });
   const enabledProviders = () =>
     scenario.providers.filter((snapshot) => settings.enabledProviders.includes(snapshot.providerId));
 
@@ -190,9 +192,9 @@ export function createProofRouter(
     },
     get_provider_catalog: () => scenario.catalog,
     get_provider_statuses: () => [],
-    reorder_providers: () => providerSummaries(scenario),
-    reorder_visible_providers: () => providerSummaries(scenario),
-    restore_default_provider_order: () => providerSummaries(scenario),
+    reorder_providers: () => providerSummaries(current()),
+    reorder_visible_providers: () => providerSummaries(current()),
+    restore_default_provider_order: () => providerSummaries(current()),
     get_cached_providers: enabledProviders,
     refresh_providers: () => {
       const ids = enabledProviders().map((snapshot) => snapshot.providerId);
@@ -227,12 +229,12 @@ export function createProofRouter(
       apiKeys: "Windows Credential Manager",
       tokenAccounts: "Windows Credential Manager",
     }),
-    get_provider_detail: (args) => providerDetail(scenario, stringArg(args, "providerId")),
+    get_provider_detail: (args) => providerDetail(current(), stringArg(args, "providerId")),
     get_provider_chart_data: (args) =>
-      providerChartData(scenario, stringArg(args, "providerId"), now),
+      providerChartData(current(), stringArg(args, "providerId"), now),
     get_provider_local_usage_summary: (args) =>
-      providerChartData(scenario, stringArg(args, "providerId"), now).localUsage,
-    get_usage_spend_summary: () => usageSpendSummary(scenario, now),
+      providerChartData(current(), stringArg(args, "providerId"), now).localUsage,
+    get_usage_spend_summary: () => usageSpendSummary(current(), now),
     get_spend_contract: (args) =>
       spendContract(stringArg(args, "providerId"), settings.spendDashboardPeriod ?? "rolling:30"),
     get_provider_cookie_source_options: () => [

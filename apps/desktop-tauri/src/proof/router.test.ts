@@ -80,6 +80,21 @@ describe("proof router", () => {
     expect((router.handle("get_settings_snapshot") as SettingsSnapshot).theme).toBe("light");
   });
 
+  it("keeps provider detail in step with patched enabled providers", () => {
+    const router = routerFor("default");
+    const enabled = () =>
+      (router.handle("get_provider_detail", { providerId: "claude" }) as ProviderDetail).enabled;
+    expect(enabled()).toBe(true);
+    const remaining = buildProofScenario("default", NOW).settings.enabledProviders.filter(
+      (id) => id !== "claude",
+    );
+    router.handle("update_settings", { patch: { enabledProviders: remaining } });
+    expect(enabled()).toBe(false);
+    expect(
+      (router.handle("get_cached_providers") as ProviderUsageSnapshot[]).map((s) => s.providerId),
+    ).not.toContain("claude");
+  });
+
   it("reports the requested settings tab as the shell target", () => {
     const router = createProofRouter(buildProofScenario("default", NOW), {
       window: "settings",
