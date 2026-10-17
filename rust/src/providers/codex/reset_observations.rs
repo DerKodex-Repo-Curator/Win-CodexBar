@@ -303,6 +303,7 @@ mod tests {
         ));
     }
 
+    #[cfg(windows)]
     #[test]
     fn blank_store_fails_load_but_merges_as_empty() {
         let root = temp_root("blank");

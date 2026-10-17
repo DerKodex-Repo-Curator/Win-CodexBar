@@ -227,7 +227,7 @@ impl CodexApi {
 
         let balance = credits
             .get("balance")
-            .and_then(|v| v.as_f64())
+            .and_then(credit_balance_value)
             .unwrap_or(0.0);
 
         Some(CostSnapshot::new(balance, "USD", "Credits"))
@@ -253,6 +253,17 @@ fn codex_window_role(window: &RateWindow) -> CodexWindowRole {
         RateWindowCadence::Weekly => CodexWindowRole::Weekly,
         RateWindowCadence::Unknown => CodexWindowRole::Unknown,
     }
+}
+
+/// The usage API sends `credits.balance` as a number or as a numeric string
+/// ("125.50"). Upstream `CreditDetails` accepts both; anything else is unknown.
+fn credit_balance_value(value: &serde_json::Value) -> Option<f64> {
+    let balance = match value {
+        serde_json::Value::Number(number) => number.as_f64(),
+        serde_json::Value::String(text) => text.trim().parse::<f64>().ok(),
+        _ => None,
+    }?;
+    balance.is_finite().then_some(balance)
 }
 
 /// Normalize the named `primary_window`/`secondary_window` fields by duration.

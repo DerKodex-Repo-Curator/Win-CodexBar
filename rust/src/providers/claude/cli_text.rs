@@ -21,6 +21,23 @@ pub(super) fn is_workspace_trust_prompt(text: &str) -> bool {
         && text.contains("yes, i trust this folder")
 }
 
+/// Heading of the usage-insights list that follows the quota rows in Claude
+/// Code 2.1.294+ `/usage` panels (lowercased for ASCII-insensitive matching).
+const USAGE_INSIGHTS_HEADING: &str = "what's contributing to your limits usage?";
+
+/// Split a rendered `/usage` screen before its insights heading. Returns the
+/// quota text and whether an insights list was present. ASCII lowercasing
+/// keeps byte offsets aligned with `rendered`.
+pub(super) fn split_usage_insights(mut rendered: String) -> (String, bool) {
+    match rendered.to_ascii_lowercase().find(USAGE_INSIGHTS_HEADING) {
+        Some(index) => {
+            rendered.truncate(index);
+            (rendered, true)
+        }
+        None => (rendered, false),
+    }
+}
+
 /// Current `/usage` panels show a local session summary above the plan limits,
 /// so the presence of a limit section outranks the activity-stats markers.
 pub(super) fn has_plan_limit_section(text: &str) -> bool {

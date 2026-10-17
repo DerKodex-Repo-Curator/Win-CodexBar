@@ -137,11 +137,11 @@ const fn spec(
     }
 }
 
-const COUNT: usize = 89;
+const COUNT: usize = 108;
 
 pub(crate) static ALL: [ProviderId; COUNT] = {
     // Indexing SPECS by discriminant relies on rows following declaration order.
-    assert!(P::Vercel as usize + 1 == COUNT);
+    assert!(P::Flora as usize + 1 == COUNT);
     let mut ids = [P::Codex; COUNT];
     let mut i = 0;
     while i < COUNT {
@@ -257,17 +257,16 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .dashboard("https://platform.moonshot.ai/console/account")
         .parse_aliases(&["kimi-k2", "kimi k2", "k2", "kimi k2 (removed)"]),
     spec(P::Amp, "amp", "Amp", "#F34E3F")
-        .labels("Usage", "Monthly")
+        .labels("Amp Free", "Balance")
         .cookie("sourcegraph.com")
         .credits()
         .dashboard("https://ampcode.com/settings/usage")
-        .status("https://sourcegraphstatus.com")
         .aliases(&["sourcegraph"]),
-    spec(P::Warp, "warp", "Warp", "#6366F1")
+    spec(P::Warp, "warp", "Warp", "#938BB4")
         .labels("Credits", "Add-on credits")
         .dashboard("https://docs.warp.dev/reference/cli/api-keys")
         .aliases(&["warp-ai", "warp-terminal"]),
-    spec(P::Ollama, "ollama", "Ollama", "#8B95B0")
+    spec(P::Ollama, "ollama", "Ollama", "#888888")
         .labels("Session", "Weekly")
         .cookie("ollama.com")
         .dashboard("https://ollama.com/settings"),
@@ -276,12 +275,12 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .dashboard("https://ai.azure.com")
         .status("https://status.azure.com")
         .parse_aliases(&["azure-openai", "azure openai"]),
-    spec(P::T3Chat, "t3chat", "T3 Chat", "#8B5CF6")
+    spec(P::T3Chat, "t3chat", "T3 Chat", "#F56647")
         .labels("Base", "Overage")
         .cookie("t3.chat")
         .dashboard("https://t3.chat/settings/customization")
         .parse_aliases(&["t3-chat", "t3 chat"]),
-    spec(P::OpenRouter, "openrouter", "OpenRouter", "#6B7280")
+    spec(P::OpenRouter, "openrouter", "OpenRouter", "#6467F2")
         .labels("Credits", "API key limit")
         .credits()
         .dashboard("https://openrouter.ai/activity")
@@ -323,7 +322,7 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .labels("5-Hour", "7-Day")
         .dashboard("https://cloud.infini-ai.com")
         .aliases(&["infini-ai"]),
-    spec(P::Perplexity, "perplexity", "Perplexity", "#1FB8CD")
+    spec(P::Perplexity, "perplexity", "Perplexity", "#20B2AA")
         .labels("Credits", "Bonus credits")
         .cookie("perplexity.ai")
         .credits()
@@ -352,8 +351,8 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .tertiary("ProviderMonthly")
         .aliases(&["opencode-go"])
         .parse_aliases(&["opencode go"]),
-    spec(P::Kilo, "kilo", "Kilo", "#5D87FF")
-        .labels("Credits", "Pass")
+    spec(P::Kilo, "kilo", "Kilo", "#F27027")
+        .labels("Credits", "Kilo Pass")
         .credits()
         .dashboard("https://app.kilo.ai/usage"),
     spec(P::Bedrock, "bedrock", "AWS Bedrock", "#01A88D")
@@ -388,7 +387,7 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .dashboard("https://console.aiand.com")
         .aliases(&["ai&", "ai-and"])
         .parse_aliases(&["ai and"]),
-    spec(P::Windsurf, "windsurf", "Windsurf", "#22C55E")
+    spec(P::Windsurf, "windsurf", "Windsurf", "#34E8BB")
         .labels("Daily", "Weekly")
         .dashboard("https://windsurf.com/subscription")
         .status("https://status.windsurf.com")
@@ -399,13 +398,13 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .credits()
         .dashboard("https://manus.im"),
     spec(P::MiMo, "mimo", "Xiaomi MiMo", "#FF6900")
-        .labels("Tokens", "Balance")
+        .labels("Credits", "Window")
         .cookie("platform.xiaomimimo.com")
         .credits()
         .dashboard("https://platform.xiaomimimo.com/#/console/balance")
         .aliases(&["xiaomimimo", "xiaomi-mimo"])
         .parse_aliases(&["xiaomi", "xiaomi mimo"]),
-    spec(P::Doubao, "doubao", "Doubao", "#2563EB")
+    spec(P::Doubao, "doubao", "Doubao", "#3370FF")
         .labels("Requests", "Usage")
         .dashboard("https://console.volcengine.com/ark/region:ark+cn-beijing/usage")
         .aliases(&["ark", "volcengine"]),
@@ -416,7 +415,7 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .dashboard("https://commandcode.ai")
         .aliases(&["command-code"])
         .parse_aliases(&["command code"]),
-    spec(P::StepFun, "stepfun", "StepFun", "#999999")
+    spec(P::StepFun, "stepfun", "StepFun", "#2196F2")
         .labels("5-hour", "Weekly")
         .dashboard("https://platform.stepfun.com/dashboard")
         .aliases(&["step-fun"])
@@ -426,14 +425,14 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .cookie("venice.ai")
         .credits()
         .dashboard("https://venice.ai/settings/api"),
-    spec(P::OpenAIApi, "openaiapi", "OpenAI API", "#10A37F")
+    spec(P::OpenAIApi, "openaiapi", "OpenAI API", "#0F826E")
         .labels("Spend", "Requests")
         .metadata_name("OpenAI")
         .dashboard("https://platform.openai.com/usage")
         .status("https://status.openai.com")
         .aliases(&["openai-api", "openai-balance"])
         .parse_aliases(&["openai api"]),
-    spec(P::Grok, "grok", "Grok", "#111827")
+    spec(P::Grok, "grok", "Grok", "#10A37F")
         .labels("Credits", "On-demand")
         .cookie("grok.com")
         .dashboard("https://grok.com/?_s=usage")
@@ -446,16 +445,19 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .dashboard("https://elevenlabs.io/app/settings/api-keys")
         .status("https://status.elevenlabs.io")
         .aliases(&["eleven-labs", "11labs"]),
-    spec(P::Deepgram, "deepgram", "Deepgram", "#13EF93")
+    spec(P::Deepgram, "deepgram", "Deepgram", "#6467F2")
         .labels("Requests", "Usage")
         .credits()
         .dashboard("https://console.deepgram.com/usage")
         .status("https://status.deepgram.com")
         .aliases(&["dg"]),
-    spec(P::Groq, "groq", "Groq", "#F55036")
+    spec(P::Groq, "groq", "Groq", "#F56844")
         .labels("Requests", "Tokens")
+        // The console session cookies live on `.groq.com` and
+        // `console.groq.com`; the parent domain matches both.
+        .cookie("groq.com")
         .credits()
-        .dashboard("https://console.groq.com/settings/metrics")
+        .dashboard("https://console.groq.com/dashboard/usage")
         .status("https://status.groq.com")
         .aliases(&["groqcloud", "groq-cloud"])
         .parse_aliases(&["groq cloud"]),
@@ -465,43 +467,48 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .status("https://status.huggingface.co")
         .aliases(&["hugging-face", "hf"])
         .parse_aliases(&["hugging face"]),
-    spec(P::Helmcode, "helmcode", "Helmcode", "#4F46E5")
+    spec(P::Helmcode, "helmcode", "Helmcode", "#4934E1")
         .labels("Quota", "Quota")
         .cookie("helmcode.com")
         .credits()
         .dashboard("https://cloud.helmcode.com/dashboard")
         .aliases(&["nan-builders"])
         .parse_aliases(&["nan builders"]),
-    spec(P::V0, "v0", "v0", "#111827")
+    spec(P::V0, "v0", "v0", "#111111")
         .labels("Billing", "Rate limit")
         .credits()
         .dashboard("https://v0.app/settings/billing")
         .status("https://www.vercel-status.com/")
         .aliases(&["v0-dev"])
         .parse_aliases(&["v0.dev"]),
-    spec(P::TypeSafe, "typesafe", "TypeSafe", "#2563EB")
+    spec(P::TinyApi, "tinyapi", "TinyApi", "#F97316")
+        .labels("Credits", "Credits")
+        .cookie("tinyapi.rest")
+        .dashboard("https://tinyapi.rest/dashboard")
+        .parse_aliases(&["tiny-api"]),
+    spec(P::TypeSafe, "typesafe", "TypeSafe", "#111111")
         .labels("Balance", "Spend")
         .cookie("typesafe.ai")
         .credits()
         .dashboard(crate::providers::typesafe::BILLING_URL)
         .aliases(&["type-safe"])
         .parse_aliases(&["type safe"]),
-    spec(P::LLMProxy, "llmproxy", "LLM Proxy", "#4F46E5")
+    spec(P::LLMProxy, "llmproxy", "LLM Proxy", "#24B47E")
         .labels("Quota", "Requests")
         .credits()
         .aliases(&["llm-proxy"])
         .parse_aliases(&["llm proxy"]),
-    spec(P::Chutes, "chutes", "Chutes", "#FF5C35")
+    spec(P::Chutes, "chutes", "Chutes", "#3184FF")
         .labels("4-hour quota", "Monthly quota")
         .credits()
         .dashboard("https://chutes.ai")
         .aliases(&["chutes-ai"])
         .parse_aliases(&["chutes ai"]),
-    spec(P::LiteLLM, "litellm", "LiteLLM", "#0EA5E9")
+    spec(P::LiteLLM, "litellm", "LiteLLM", "#4C89F0")
         .labels("Personal budget", "Team budget")
         .aliases(&["lite-llm"])
         .parse_aliases(&["lite llm"]),
-    spec(P::Poe, "poe", "Poe", "#5D5FEF")
+    spec(P::Poe, "poe", "Poe", "#5D5CDE")
         .labels("Balance", "Points")
         .credits()
         .dashboard("https://poe.com/settings/subscription"),
@@ -509,7 +516,7 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .labels("Daily", "Weekly")
         .credits()
         .dashboard("https://app.devin.ai/settings/billing"),
-    spec(P::Zed, "zed", "Zed", "#084CCF")
+    spec(P::Zed, "zed", "Zed", "#084EFF")
         .labels("Edits", "Cycle")
         .cookie("zed.dev")
         .credits()
@@ -528,7 +535,7 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
     .dashboard("https://crossmodel.ai")
     .aliases(&["cross-model"])
     .parse_aliases(&["cross model", "crossmodel (removed)"]),
-    spec(P::Qoder, "qoder", "Qoder", "#2563EB")
+    spec(P::Qoder, "qoder", "Qoder", "#10B981")
         .labels("Credits", "Shared credits")
         .cookie("qoder.com")
         .credits()
@@ -539,17 +546,20 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .credits()
         .dashboard("https://www.codebuddy.cn/profile/plans-usage")
         .parse_aliases(&["code-buddy", "codebuddy-cn", "codebuddycn", "腾讯codebuddy"]),
-    spec(P::Sakana, "sakana", "Sakana AI", "#0EA5E9")
+    spec(P::Sakana, "sakana", "Sakana AI", "#2975DB")
         .labels("5-hour", "Weekly")
         .cookie("console.sakana.ai")
         .dashboard(crate::providers::sakana::BILLING_URL)
         .aliases(&["sakana-ai"])
         .parse_aliases(&["sakana ai"]),
+    spec(P::Sofya, "sofya", "Sofya", "#B0B820")
+        .labels("Credits", "Credits")
+        .dashboard("https://sofya.co/dashboard"),
     spec(P::Sub2Api, "sub2api", "sub2api", "#14B8A6")
         .labels("Quota", "Weekly quota")
         .aliases(&["sub-2-api"])
         .parse_aliases(&["sub 2 api"]),
-    spec(P::Wayfinder, "wayfinder", "Wayfinder", "#14B8A6").labels("Gateway", "Savings"),
+    spec(P::Wayfinder, "wayfinder", "Wayfinder", "#10A37F").labels("Gateway", "Savings"),
     spec(P::ZenMux, "zenmux", "ZenMux", "#6C5CE7")
         .labels("5-hour quota", "Weekly quota")
         .dashboard("https://zenmux.ai/platform/management")
@@ -595,6 +605,11 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .status("https://status.x.ai")
         .aliases(&["x.ai"])
         .parse_aliases(&["x-ai"]),
+    spec(P::Xapi, "xapi", "X API", "#71767B")
+        .labels("Balance", "Balance")
+        .cookie("x.com")
+        .dashboard("https://console.x.com")
+        .parse_aliases(&["x-api", "x api"]),
     spec(P::Fireworks, "fireworks", "Fireworks", "#F25B1C")
         .labels("Spend", "Spend")
         .dashboard("https://app.fireworks.ai")
@@ -661,7 +676,8 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
         .cookie("www.raycast.com")
         .dashboard(crate::providers::raycast::SETTINGS_URL)
         .parse_aliases(&["raycast-ai"]),
-    // Upstream uses white; a mid neutral keeps contrast on light and dark surfaces.
+    // Mac uses white, which is invisible on the light bar track; a mid neutral
+    // keeps contrast on light and dark surfaces (user decision 2026-10-10).
     spec(P::Vercel, "vercel", "Vercel AI Gateway", "#737373")
         .labels("Balance", "Balance")
         .dashboard("https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway")
@@ -671,4 +687,64 @@ pub(crate) static SPECS: [ProviderSpec; COUNT] = [
             "ai-gateway",
             "ai gateway",
         ]),
+    spec(P::Synthetic, "synthetic", "Synthetic", "#141414")
+        .labels("Five-hour quota", "Weekly tokens")
+        .aliases(&["synthetic.new"]),
+    spec(P::ClawRouter, "clawrouter", "ClawRouter", "#596EF6")
+        .labels("Monthly budget", "Requests")
+        .dashboard("https://clawrouter.openclaw.ai/dashboard/access")
+        .aliases(&["claw-router"]),
+    spec(P::IBMBob, "ibmbob", "IBM Bob", "#0E61FA")
+        .labels("Monthly Bobcoins", "Monthly Bobcoins")
+        .dashboard("https://bob.ibm.com")
+        .status("https://status.bob.ibm.com")
+        .aliases(&["ibm-bob", "ibm bob", "bob", "bobshell"]),
+    spec(P::Langdock, "langdock", "Langdock", "#5A4AE7")
+        .labels("Session", "Weekly")
+        .cookie("langdock.com")
+        .dashboard("https://app.langdock.com/settings/account/usage"),
+    spec(P::LithosAI, "lithosai", "LithosAI", "#6B7280")
+        .labels("Balance", "Spend")
+        .cookie("console.lithosai.cloud")
+        .dashboard("https://console.lithosai.cloud"),
+    spec(P::Linkup, "linkup", "Linkup", "#202020")
+        .labels("Balance", "Balance")
+        .dashboard("https://app.linkup.so/organization/billing"),
+    spec(P::MuseAI, "museai", "Muse (muse.ai)", "#0668E1")
+        .labels("Weekly", "Plan")
+        .cookie("muse.ai")
+        .dashboard("https://muse.ai/?settings_tab=general")
+        .aliases(&["muse (muse.ai)"]),
+    spec(P::WorkBuddy, "workbuddy", "WorkBuddy", "#0DC8A6")
+        .labels("Credits", "Plan")
+        .cookie("workbuddy.cn")
+        .dashboard("https://www.workbuddy.cn/profile/plans-usage"),
+    spec(P::SailResearch, "sailresearch", "Sail Research", "#2C4681")
+        .labels("Balance", "Spend")
+        .dashboard("https://app.sailresearch.com")
+        .parse_aliases(&["sail research"]),
+    spec(P::Tavily, "tavily", "Tavily", "#0F766E")
+        .labels("Plan credits", "API key")
+        .dashboard("https://app.tavily.com"),
+    spec(P::Exa, "exa", "Exa", "#0143D9")
+        .labels("Spend", "Spend")
+        .dashboard("https://dashboard.exa.ai/api-keys"),
+    spec(P::Cosmic, "cosmic", "Cosmic AI", "#6366F1")
+        .labels("Input tokens", "Output tokens")
+        .dashboard("https://app.cosmicjs.com")
+        .parse_aliases(&["cosmic ai"]),
+    spec(P::Aerostack, "aerostack", "Aerostack", "#6366F1")
+        .labels("Monthly AI tokens", "Weekly")
+        .dashboard("https://app.aerostack.dev/settings/billing"),
+    spec(P::Parallel, "parallel", "Parallel", "#1D1C1A")
+        .labels("Balance", "Balance")
+        .cookie("platform.parallel.ai")
+        .dashboard("https://platform.parallel.ai")
+        .parse_aliases(&["parallel.ai"]),
+    spec(P::Fal, "fal", "fal", "#7C3AED")
+        .labels("Credit balance", "Credit balance")
+        .dashboard("https://fal.ai/dashboard/billing"),
+    spec(P::Flora, "flora", "FLORA", "#111111")
+        .labels("Balance", "Balance")
+        .dashboard("https://app.flora.ai"),
 ];

@@ -111,6 +111,7 @@ impl CodexApi {
                     is_external_oauth: false,
                     access_token_expires_at: None,
                     last_refresh: None,
+                    account_email: None,
                 });
             }
         }
@@ -148,6 +149,10 @@ impl CodexApi {
             .and_then(parse_timestamp);
 
         let access_token_expires_at = parse_access_token_expiry(&access_token);
+        let account_email = tokens
+            .get("id_token")
+            .and_then(|v| v.as_str())
+            .and_then(crate::codex_accounts::credentials::email_from_id_token);
 
         Ok(CodexCredentials {
             access_token,
@@ -155,6 +160,7 @@ impl CodexApi {
             is_external_oauth: has_refresh_token,
             access_token_expires_at,
             last_refresh,
+            account_email,
         })
     }
 
@@ -250,6 +256,9 @@ pub(super) struct CodexCredentials {
     /// supplies provenance when the external-source opt-in setting is OFF;
     /// its age is not an access-token expiry signal.
     pub(super) last_refresh: Option<DateTime<Utc>>,
+    /// Account email from the auth.json `id_token` (claim `email`, or the
+    /// OpenAI profile claim). Shown in the card header; never logged.
+    pub(super) account_email: Option<String>,
 }
 
 struct CachedCodexCredentials {

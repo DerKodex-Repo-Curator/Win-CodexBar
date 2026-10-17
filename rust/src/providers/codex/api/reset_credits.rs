@@ -170,7 +170,9 @@ impl CodexApi {
                 super::super::authenticated_http_error(response, "Codex reset credits").await,
             );
         }
-        decode_reset_credits(&response.bytes().await?)
+        let mut credits = decode_reset_credits(&response.bytes().await?)?;
+        credits.observed_at = Some(Utc::now());
+        Ok(credits)
     }
 }
 
@@ -191,6 +193,10 @@ pub(in crate::providers::codex) struct ResetCredits {
     #[serde(default)]
     pub(in crate::providers::codex) credits: Vec<ResetCredit>,
     pub(in crate::providers::codex) available_count: u32,
+    /// When the endpoint answered. A cached inventory keeps its original time
+    /// so weekly-reset evidence can tell it apart from a fresh read.
+    #[serde(skip)]
+    pub(in crate::providers::codex) observed_at: Option<DateTime<Utc>>,
 }
 
 pub(super) fn decode_reset_credits(data: &[u8]) -> Result<ResetCredits, ProviderError> {

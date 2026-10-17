@@ -422,3 +422,112 @@ fn web_extras_order_oauth_scoped_then_routines() {
         ]
     );
 }
+
+#[test]
+fn web_cloud_credits_block_becomes_display_row_and_leaves_windows_alone() {
+    let usage: super::UsageResponse = serde_json::from_str(
+        r#"{
+            "five_hour": { "utilization": 10.0 },
+            "iguana_necktie": {
+                "limit_dollars": 20.0,
+                "used_dollars": 8.0,
+                "remaining_dollars": 12.0,
+                "resets_at": "2099-01-01T00:00:00Z"
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let row = super::cloud_credits_row(&usage, chrono::Utc::now()).expect("cloud credits row");
+    assert_eq!(row.title(), "Cloud credits");
+    assert_eq!(row.value(), "$12.00 of $20.00 remaining");
+    assert_eq!(row.secondary_value(), Some("Expires 2099-01-01"));
+    assert!(usage.extra_usage.is_none());
+    assert!(usage.seven_day.is_none());
+}
+
+#[test]
+fn web_response_without_valid_cloud_credits_yields_no_row() {
+    let absent: super::UsageResponse =
+        serde_json::from_str(r#"{"five_hour": {"utilization": 1.0}}"#).unwrap();
+    assert!(super::cloud_credits_row(&absent, chrono::Utc::now()).is_none());
+
+    let malformed: super::UsageResponse =
+        serde_json::from_str(r#"{"iguana_necktie": {"remaining_dollars": 5.0}}"#).unwrap();
+    assert!(super::cloud_credits_row(&malformed, chrono::Utc::now()).is_none());
+}
+
+#[test]
+fn spend_only_web_response_projects_capped_spend_into_one_meter() {
+    let usage: super::UsageResponse = serde_json::from_str(
+        r#"{
+            "extra_usage": {
+                "is_enabled": true,
+                "monthly_credit_limit": 5000,
+                "used_credits": 1234,
+                "currency": "USD"
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let fetcher = ClaudeWebApiFetcher::new();
+    let (snapshot, cost) = fetcher.build_usage_and_cost(&usage, usage.extra_usage.clone());
+    let cost = cost.expect("capped spend cost");
+
+    assert!(!snapshot.primary.is_informational);
+    assert!((snapshot.primary.used_percent - 24.68).abs() < 0.01);
+    assert_eq!(snapshot.primary_label.as_deref(), Some("Monthly"));
+    assert!(snapshot.secondary.is_none());
+    assert!(snapshot.extra_rate_windows.is_empty());
+    assert!(cost.folded_into_primary);
+    assert_eq!(cost.limit, Some(50.0));
+    assert!((cost.used - 12.34).abs() < f64::EPSILON);
+}
+
+#[test]
+fn quota_web_response_keeps_session_and_unfolded_cost() {
+    let usage: super::UsageResponse = serde_json::from_str(
+        r#"{
+            "five_hour": { "utilization": 10 },
+            "extra_usage": {
+                "is_enabled": true,
+                "monthly_credit_limit": 2000,
+                "used_credits": 550,
+                "currency": "USD"
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let fetcher = ClaudeWebApiFetcher::new();
+    let (snapshot, cost) = fetcher.build_usage_and_cost(&usage, usage.extra_usage.clone());
+    let cost = cost.expect("quota cost");
+
+    assert!((snapshot.primary.used_percent - 10.0).abs() < f64::EPSILON);
+    assert!(snapshot.primary_label.is_none());
+    assert!(!cost.folded_into_primary);
+    assert_eq!(cost.limit, Some(20.0));
+}
+
+#[test]
+fn disabled_extra_usage_web_response_has_no_meter_or_cost() {
+    let usage: super::UsageResponse = serde_json::from_str(
+        r#"{
+            "extra_usage": {
+                "is_enabled": false,
+                "monthly_credit_limit": 5000,
+                "used_credits": 1234,
+                "currency": "USD"
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let fetcher = ClaudeWebApiFetcher::new();
+    let (snapshot, cost) = fetcher.build_usage_and_cost(&usage, usage.extra_usage.clone());
+
+    assert!(cost.is_none());
+    assert!(snapshot.primary.is_informational);
+    assert!(snapshot.primary_label.is_none());
+}

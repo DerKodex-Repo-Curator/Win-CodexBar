@@ -1,6 +1,8 @@
 use super::*;
 use chrono::TimeZone;
 
+mod guards;
+mod missing_inventory;
 mod plan_change;
 
 #[test]
@@ -115,6 +117,7 @@ fn inventory(id: &str) -> CreditInventory {
             status: "available".to_string(),
             expires_at: Some(now() + chrono::Duration::days(3)),
         }],
+        observed_at: now(),
     }
 }
 
@@ -153,6 +156,7 @@ fn inventory_retains_consumed_status_rows_but_counts_only_available_credits() {
                 expires_at: None,
             },
         ],
+        observed_at: None,
     };
     let inventory = super::inventory(Some(&reset), now()).expect("credit inventory");
     assert_eq!(inventory.available_count, 1);
@@ -340,6 +344,7 @@ fn consumed_credit_allows_immediate_confirmation() {
     let consumed = CreditInventory {
         available_count: 0,
         credits: Vec::new(),
+        observed_at: now(),
     };
     assert_eq!(
         confirm(&mut state, &initial, &confirmation, Some(&consumed)),
@@ -692,6 +697,7 @@ fn persisted_stale_baseline_recovers_after_delayed_reset_confirmation_across_rel
                 status: "available".to_string(),
                 expires_at: Some(next_boundary + chrono::Duration::days(1)),
             }],
+            observed_at: at(-360),
         };
         let weekly_snapshot = |used: f64, boundary: DateTime<Utc>, updated_at: DateTime<Utc>| {
             let weekly =

@@ -100,6 +100,7 @@ fn reset_credits_window_sets_informational_and_expiry() {
             credit(Some("available"), "2026-07-15T12:00:00Z"),
             credit(Some("available"), "2026-07-10T12:00:00Z"),
         ],
+        observed_at: None,
     };
     let window = reset_credits_rate_window(&reset, now);
     assert!(window.is_informational);
@@ -116,6 +117,7 @@ fn reset_credits_window_count_only_without_expiry() {
     let reset = ResetCredits {
         available_count: 1,
         credits: vec![],
+        observed_at: None,
     };
     let window = reset_credits_rate_window(&reset, now);
     assert!(window.is_informational);
@@ -157,6 +159,7 @@ fn external_creds(access_token: &str, last_refresh: Option<DateTime<Utc>>) -> Co
         is_external_oauth: true,
         access_token_expires_at: None,
         last_refresh,
+        account_email: None,
     }
 }
 
@@ -853,7 +856,7 @@ fn oauth_tokens_without_refresh_token_are_not_external() {
 #[test]
 fn external_oauth_gate_fails_closed_without_last_refresh() {
     let creds = external_creds("access", None);
-    let err = CodexApi::enforce_external_oauth_gate(&creds)
+    let err = CodexApi::enforce_external_oauth_gate_at(&creds, false, Utc::now())
         .expect_err("external OAuth without provenance must fail closed");
     assert!(matches!(err, ProviderError::AuthRequired));
 }
@@ -937,4 +940,93 @@ fn parse_timestamp_reads_iso8601() {
     assert!(parse_timestamp("  2026-08-17T10:00:00Z  ").is_some());
     assert!(parse_timestamp("").is_none());
     assert!(parse_timestamp("not-a-date").is_none());
+}
+
+fn credits_cost_from_json(balance: serde_json::Value) -> Option<CostSnapshot> {
+    CodexApi::new()
+        .build_result_from_json_for_test(&json!({
+            "rate_limit": {
+                "primary_window": { "used_percent": 10, "limit_window_seconds": 18000 }
+            },
+            "credits": { "has_credits": true, "unlimited": false, "balance": balance }
+        }))
+        .expect("codex usage")
+        .1
+}
+
+#[test]
+fn credits_balance_accepts_numeric_string() {
+    let cost = credits_cost_from_json(json!("125.50")).expect("credits cost");
+    assert_eq!(cost.used, 125.5);
+    assert_eq!(cost.currency_code, "USD");
+}
+
+#[test]
+fn credits_balance_accepts_number() {
+    let cost = credits_cost_from_json(json!(7.5)).expect("credits cost");
+    assert_eq!(cost.used, 7.5);
+}
+
+#[test]
+fn credits_balance_falls_back_to_zero_for_non_numeric_string() {
+    let cost = credits_cost_from_json(json!("abc")).expect("credits cost");
+    assert_eq!(cost.used, 0.0);
+}
+
+fn id_token(payload: &str) -> String {
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload);
+    format!("header.{payload}.signature")
+}
+
+#[test]
+fn credentials_read_account_email_from_id_token() {
+    let token = id_token(r#"{"email":"parity.user@example.com"}"#);
+    let json = format!(
+        r#"{{"tokens":{{"access_token":"access","refresh_token":"refresh","id_token":"{token}"}}}}"#
+    );
+    let creds = CodexApi::parse_credentials_json(&json).expect("credentials");
+    assert_eq!(
+        creds.account_email.as_deref(),
+        Some("parity.user@example.com")
+    );
+}
+
+#[test]
+fn credentials_fall_back_to_the_openai_profile_email_claim() {
+    let token = id_token(
+        r#"{"email":"  ","https://api.openai.com/profile":{"email":"profile@example.com"}}"#,
+    );
+    let json = format!(r#"{{"tokens":{{"access_token":"access","id_token":"{token}"}}}}"#);
+    let creds = CodexApi::parse_credentials_json(&json).expect("credentials");
+    assert_eq!(creds.account_email.as_deref(), Some("profile@example.com"));
+}
+
+#[test]
+fn credentials_without_a_readable_id_token_have_no_email() {
+    let json = r#"{"tokens":{"access_token":"access","id_token":"not-a-jwt"}}"#;
+    let creds = CodexApi::parse_credentials_json(json).expect("credentials");
+    assert!(creds.account_email.is_none());
+    let api_key =
+        CodexApi::parse_credentials_json(r#"{"OPENAI_API_KEY":"sk-test"}"#).expect("credentials");
+    assert!(api_key.account_email.is_none());
+}
+
+#[test]
+fn credential_email_fills_the_snapshot_but_never_overrides_one() {
+    let creds = CodexCredentials {
+        access_token: "access".to_string(),
+        account_id: None,
+        is_external_oauth: true,
+        access_token_expires_at: None,
+        last_refresh: None,
+        account_email: Some("parity.user@example.com".to_string()),
+    };
+    let usage = with_credential_email(UsageSnapshot::new(RateWindow::new(10.0)), &creds);
+    assert_eq!(
+        usage.account_email.as_deref(),
+        Some("parity.user@example.com")
+    );
+    let existing = UsageSnapshot::new(RateWindow::new(10.0)).with_email("whoami@example.com");
+    let usage = with_credential_email(existing, &creds);
+    assert_eq!(usage.account_email.as_deref(), Some("whoami@example.com"));
 }

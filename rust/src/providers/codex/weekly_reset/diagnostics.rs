@@ -29,6 +29,8 @@ reset_diagnostic_reasons! {
     PlanChanged => "planChanged",
     MissingCreditInventory => "missingCreditInventory",
     ChangedCreditInventory => "changedCreditInventory",
+    NonMonotonicCreditObservationTime => "nonMonotonicCreditObservationTime",
+    InconsistentAvailableCreditCount => "inconsistentAvailableCreditCount",
     EvidenceVersionMismatch => "evidenceVersionMismatch",
     FutureCandidate => "futureCandidate",
     ExpiredCandidate => "expiredCandidate",

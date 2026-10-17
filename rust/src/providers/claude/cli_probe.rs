@@ -288,14 +288,16 @@ pub(super) fn javascript_hash_base36(text: &str) -> String {
 /// Arguments shared by every Claude CLI `/usage` probe.
 ///
 /// The remote-control startup hook can otherwise change the interactive
-/// session before the usage command is collected. Keep this override in one
-/// helper so future CLI probe paths cannot silently omit it.
+/// session before the usage command is collected. `disableAllHooks` stops the
+/// user's SessionStart hooks (git syncs, ssh, and so on) from running on every
+/// poll. Keep this override in one helper so future CLI probe paths cannot
+/// silently omit it.
 pub(super) fn claude_usage_settings_args() -> [String; 2] {
     [
         "--settings".to_string(),
         // Issue #778 (Claude Code 2.1.293): `tui: default` stops the "Try the new
         // fullscreen renderer?" offer. Older builds ignore unknown settings keys.
-        r#"{"remoteControlAtStartup":false,"tui":"default"}"#.to_string(),
+        r#"{"remoteControlAtStartup":false,"disableAllHooks":true,"tui":"default"}"#.to_string(),
     ]
 }
 
@@ -305,6 +307,9 @@ pub(super) fn claude_probe_launch_args(session_id: &str) -> Vec<String> {
         "user".to_string(),
         "--allowed-tools".to_string(),
         String::new(),
+        // The probe never calls MCP tools, so ignore ambient MCP servers
+        // instead of waiting for unrelated user servers to initialize.
+        "--strict-mcp-config".to_string(),
     ];
     args.extend(claude_usage_settings_args());
     args.extend(["--session-id".to_string(), session_id.to_string()]);
@@ -349,13 +354,14 @@ const CLAUDE_USAGE_ECHO_MARKERS: &[&str] = &["❯ /usage", "> /usage", "/usage s
 async fn run_claude_usage_pty_probe(
     claude_path: std::path::PathBuf,
     working_directory: std::path::PathBuf,
+    timeout: Duration,
 ) -> Result<String, ProviderError> {
     run_claude_pty_probe(
         claude_path,
         working_directory,
         ClaudePtyProbeOptions {
             script: "/usage",
-            timeout_secs: 24.0,
+            timeout_secs: timeout.as_secs_f64(),
             idle_timeout_secs: Some(6.0),
             initial_delay_secs: 3.0,
             script_char_delay_secs: 0.04,
@@ -406,6 +412,7 @@ pub(super) fn resolve_claude_cli_path() -> Result<std::path::PathBuf, ProviderEr
 
 pub(super) async fn fetch_claude_cli_usage_text(
     claude_path: std::path::PathBuf,
+    timeout: Duration,
 ) -> Result<String, ProviderError> {
     let probe_dir = claude_usage_probe_dir()?;
     if let Some(login) = claude_login_fingerprint()
@@ -413,13 +420,14 @@ pub(super) async fn fetch_claude_cli_usage_text(
     {
         return Ok(cached);
     }
-    let combined = run_claude_usage_pty_probe(claude_path.clone(), probe_dir.clone()).await?;
+    let combined =
+        run_claude_usage_pty_probe(claude_path.clone(), probe_dir.clone(), timeout).await?;
     if !is_workspace_trust_prompt(&cli_screen::render(&combined, true).to_lowercase()) {
         return Ok(combined);
     }
 
     run_claude_trust_preflight(claude_path.clone(), probe_dir.clone()).await?;
-    run_claude_usage_pty_probe(claude_path, probe_dir).await
+    run_claude_usage_pty_probe(claude_path, probe_dir, timeout).await
 }
 
 /// Windows launch failures the CLI prints instead of a usage screen, as
@@ -501,6 +509,9 @@ async fn run_claude_pty_probe(
                 .with_script_line_delay(probe.script_line_delay_secs)
                 .with_working_directory(working_directory.clone())
                 .with_extra_args(claude_probe_launch_args(&session_id));
+            // Match the replay screen: rows scrolled off a shorter PTY are
+            // missing from the replayed panel (see `cli_screen::ROWS`).
+            options.rows = u16::try_from(cli_screen::ROWS).expect("Claude PTY rows fit in u16");
             if let Some(idle) = probe.idle_timeout_secs {
                 options = options.with_idle_timeout(idle);
             }

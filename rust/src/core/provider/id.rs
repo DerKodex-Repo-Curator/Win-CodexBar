@@ -62,6 +62,7 @@ pub enum ProviderId {
     HuggingFace,
     Helmcode,
     V0,
+    TinyApi,
     TypeSafe,
     LLMProxy,
     Chutes,
@@ -73,6 +74,7 @@ pub enum ProviderId {
     Qoder,
     CodeBuddy,
     Sakana,
+    Sofya,
     Sub2Api,
     Wayfinder,
     ZenMux,
@@ -83,6 +85,7 @@ pub enum ProviderId {
     QwenCloud,
     Notion,
     Xai,
+    Xapi,
     Fireworks,
     AtlasCloud,
     #[serde(alias = "metaspark")]
@@ -99,6 +102,22 @@ pub enum ProviderId {
     XKiro,
     Raycast,
     Vercel,
+    Synthetic,
+    ClawRouter,
+    IBMBob,
+    Langdock,
+    LithosAI,
+    Linkup,
+    MuseAI,
+    WorkBuddy,
+    SailResearch,
+    Tavily,
+    Exa,
+    Cosmic,
+    Aerostack,
+    Parallel,
+    Fal,
+    Flora,
 }
 
 impl ProviderId {
@@ -159,6 +178,30 @@ impl ProviderId {
     pub fn is_deprecated(&self) -> bool {
         matches!(self, ProviderId::KimiK2 | ProviderId::CrossModel)
     }
+
+    /// Lowercase CLI aliases that `from_cli_name` also resolves to this provider,
+    /// excluding `cli_name` itself. Feeds the Settings provider search.
+    pub fn cli_aliases(&self) -> Vec<&'static str> {
+        let spec = self.spec();
+        spec.aliases
+            .iter()
+            .chain(spec.parse_aliases)
+            .copied()
+            .collect()
+    }
+
+    /// Reset-window pace rule (upstream `ProviderDescriptor.pace`, v0.70.0).
+    /// Each provider declares its rule in its own module; the dispatch lives
+    /// in `provider_factory::pace_capability`.
+    pub fn pace_capability(&self) -> crate::core::ProviderPaceCapability {
+        crate::core::provider_factory::pace_capability(*self)
+    }
+
+    /// Limit reset detector rule. Each provider declares its rule in its own
+    /// module; the dispatch lives in `provider_factory::limit_reset_policy`.
+    pub fn limit_reset_policy(&self) -> crate::core::ProviderLimitResetPolicy {
+        crate::core::provider_factory::limit_reset_policy(*self)
+    }
 }
 
 impl std::fmt::Display for ProviderId {
@@ -199,7 +242,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 89);
+        assert_eq!(all.len(), 108);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Pi));
@@ -398,6 +441,7 @@ mod tests {
         assert_eq!(ProviderId::Kimi.cookie_domain(), Some("kimi.moonshot.cn"));
         assert_eq!(ProviderId::OpenCode.cookie_domain(), Some("opencode.ai"));
         assert_eq!(ProviderId::Venice.cookie_domain(), Some("venice.ai"));
+        assert_eq!(ProviderId::Groq.cookie_domain(), Some("groq.com"));
 
         // Token-based providers (no cookies)
         assert_eq!(ProviderId::Copilot.cookie_domain(), None);
@@ -595,10 +639,8 @@ mod tests {
     ];
 
     /// Audited providers whose accent upstream kept, where the Windows accent
-    /// already equals upstream's final value. Chutes, Deepgram, Doubao, Groq,
-    /// Kilo, LiteLLM, Perplexity, Qoder, Sakana, T3 Chat and Warp keep older
-    /// Windows accents that differ from upstream; aligning them is out of
-    /// scope for the 0.70.0 port.
+    /// already equals upstream's final value. The audited providers whose
+    /// older Windows accents differed are aligned in `MAC_PARITY_ACCENTS`.
     const RETAINED_ACCENTS: [(ProviderId, &str); 7] = [
         (ProviderId::AiAnd, "#E25C2B"),
         (ProviderId::Copilot, "#A855F7"),
@@ -607,6 +649,51 @@ mod tests {
         (ProviderId::Kimi, "#FE603C"),
         (ProviderId::Notion, "#337EA9"),
         (ProviderId::OpenCode, "#3B82F6"),
+    ];
+
+    /// Mac CodexBar 0.70.0 descriptor colors adopted for parity: (provider,
+    /// previous Windows accent, Mac color). Source: the `color:` of each
+    /// `CodexBarCore/Providers/<Name>/<Name>ProviderDescriptor.swift`.
+    const MAC_PARITY_ACCENTS: [(ProviderId, &str, &str); 24] = [
+        (ProviderId::Chutes, "#FF5C35", "#3184FF"),
+        (ProviderId::Deepgram, "#13EF93", "#6467F2"),
+        (ProviderId::Doubao, "#2563EB", "#3370FF"),
+        (ProviderId::Grok, "#111827", "#10A37F"),
+        (ProviderId::Groq, "#F55036", "#F56844"),
+        (ProviderId::Helmcode, "#4F46E5", "#4934E1"),
+        (ProviderId::Kilo, "#5D87FF", "#F27027"),
+        (ProviderId::LiteLLM, "#0EA5E9", "#4C89F0"),
+        (ProviderId::LLMProxy, "#4F46E5", "#24B47E"),
+        (ProviderId::Ollama, "#8B95B0", "#888888"),
+        (ProviderId::OpenAIApi, "#10A37F", "#0F826E"),
+        (ProviderId::OpenRouter, "#6B7280", "#6467F2"),
+        (ProviderId::Perplexity, "#1FB8CD", "#20B2AA"),
+        (ProviderId::Poe, "#5D5FEF", "#5D5CDE"),
+        (ProviderId::Qoder, "#2563EB", "#10B981"),
+        (ProviderId::Sakana, "#0EA5E9", "#2975DB"),
+        (ProviderId::StepFun, "#999999", "#2196F2"),
+        (ProviderId::T3Chat, "#8B5CF6", "#F56647"),
+        (ProviderId::TypeSafe, "#2563EB", "#111111"),
+        (ProviderId::V0, "#111827", "#111111"),
+        (ProviderId::Warp, "#6366F1", "#938BB4"),
+        (ProviderId::Wayfinder, "#14B8A6", "#10A37F"),
+        (ProviderId::Windsurf, "#22C55E", "#34E8BB"),
+        (ProviderId::Zed, "#084CCF", "#084EFF"),
+    ];
+
+    /// Mac-parity accents that fail the regression rule on one surface. They
+    /// are bar fills and icon tints, not text, and the Mac ships them as is;
+    /// the user chose exact Mac colors (2026-10-10). Each entry names the
+    /// only surface it is exempt on; every other check still applies.
+    const MAC_PARITY_CONTRAST_EXEMPTIONS: [(ProviderId, &str); 4] = [
+        // Mac green, 6.29 -> 2.66 on white.
+        (ProviderId::LLMProxy, "#FFFFFF"),
+        // Mac emerald, 5.17 -> 2.54 on white.
+        (ProviderId::Qoder, "#FFFFFF"),
+        // Mac near-black, 3.08 -> 1.19 on #222222.
+        (ProviderId::TypeSafe, "#222222"),
+        // Mac mint, 2.28 -> 1.57 on white.
+        (ProviderId::Windsurf, "#FFFFFF"),
     ];
 
     /// WCAG relative luminance of a `#RRGGBB` color, as upstream's
@@ -670,6 +757,67 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn mac_parity_accents_are_pinned() {
+        for (id, _, mac) in MAC_PARITY_ACCENTS {
+            assert_eq!(brand_color(id), mac, "{id:?}");
+        }
+        // Mac ships #FFFFFF, invisible on the light track (user decision 2026-10-10).
+        assert_eq!(brand_color(ProviderId::Vercel), "#737373");
+    }
+
+    #[test]
+    fn mac_parity_accents_do_not_materially_regress_contrast() {
+        // Same rule as the upstream audit above, applied to the Mac-parity
+        // pass. Only the listed provider/surface pairs are exempt.
+        for (id, previous, _) in MAC_PARITY_ACCENTS {
+            for background in ["#FFFFFF", "#222222"] {
+                let current = contrast_ratio(brand_color(id), background);
+                let before = contrast_ratio(previous, background);
+                let passes = current >= 3.0 || before - current < 0.5;
+                let exempt = MAC_PARITY_CONTRAST_EXEMPTIONS.contains(&(id, background));
+                assert!(
+                    passes != exempt,
+                    "{id:?} on {background}: {before:.2} -> {current:.2} (exempt: {exempt})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cli_aliases_resolve_back_to_their_provider_and_are_unique() {
+        let mut seen = std::collections::HashMap::new();
+        for id in ProviderId::all() {
+            for alias in id.cli_aliases() {
+                assert_ne!(alias, id.cli_name(), "alias repeats cli_name for {id:?}");
+                assert_eq!(
+                    ProviderId::from_cli_name(alias),
+                    Some(*id),
+                    "alias {alias:?} does not resolve to {id:?}"
+                );
+                assert_eq!(
+                    alias.to_lowercase(),
+                    alias,
+                    "alias {alias:?} must be lowercase"
+                );
+                assert!(
+                    seen.insert(alias, *id).is_none(),
+                    "alias {alias:?} is claimed by more than one provider"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cli_aliases_cover_the_documented_search_aliases() {
+        assert!(ProviderId::Codex.cli_aliases().contains(&"openai"));
+        assert!(ProviderId::Claude.cli_aliases().contains(&"anthropic"));
+        assert!(ProviderId::Factory.cli_aliases().contains(&"droid"));
+        assert!(ProviderId::Antigravity.cli_aliases().contains(&"agy"));
+        assert!(!ProviderId::Zai.cli_aliases().is_empty());
+        assert!(!ProviderId::Codex.cli_aliases().contains(&"codex"));
     }
 
     #[test]

@@ -189,6 +189,7 @@ impl CodexApi {
                             usage,
                         )
                         .await;
+                        let usage = with_credential_email(usage, &creds);
                         return Ok((
                             usage,
                             first_cost,
@@ -246,6 +247,7 @@ impl CodexApi {
         )
         .await;
         let usage = apply_reset_credits_window(usage, displayed_credits.as_ref());
+        let usage = with_credential_email(usage, &creds);
         Ok((usage, cost, creds.account_id.clone(), displayed_credits))
     }
 
@@ -329,6 +331,15 @@ impl CodexApi {
             return false;
         };
         parse_chatgpt_base_url(&content).is_some() || config_uses_non_chatgpt_provider(&content)
+    }
+}
+
+/// The card header shows the auth.json account email (upstream reads it from
+/// the id_token). An email already on the snapshot wins.
+fn with_credential_email(usage: UsageSnapshot, creds: &CodexCredentials) -> UsageSnapshot {
+    match (&usage.account_email, &creds.account_email) {
+        (None, Some(email)) => usage.with_email(email.clone()),
+        _ => usage,
     }
 }
 
