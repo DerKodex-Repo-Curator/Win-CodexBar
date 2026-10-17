@@ -65,10 +65,96 @@ pub(super) struct RemainsRow {
 // for non-weekly rows, IANA timezone names, host/env URL overrides
 // (`MiniMaxSettingsReader`).
 
+/// MiniMax console times are China Standard Time.
+const CN_TZ: FixedOffset = FixedOffset::east_opt(8 * 3600).unwrap();
+
 /// Look up a value trying snake_case then camelCase (upstream normalizes the
 /// camelCase aliases onto the snake_case keys).
 fn get_field<'a>(obj: &'a Value, snake: &str, camel: &str) -> Option<&'a Value> {
     obj.get(snake).or_else(|| obj.get(camel))
+}
+
+/// Snake/camel key pairs for one quota lane of a `model_remains[]` entry.
+struct LaneKeys {
+    total: [&'static str; 2],
+    usage: [&'static str; 2],
+    remaining_percent: [&'static str; 2],
+    status: [&'static str; 2],
+    start: [&'static str; 2],
+    end: [&'static str; 2],
+    remains: [&'static str; 2],
+}
+
+const INTERVAL_LANE: LaneKeys = LaneKeys {
+    total: ["current_interval_total_count", "currentIntervalTotalCount"],
+    usage: ["current_interval_usage_count", "currentIntervalUsageCount"],
+    remaining_percent: [
+        "current_interval_remaining_percent",
+        "currentIntervalRemainingPercent",
+    ],
+    status: ["current_interval_status", "currentIntervalStatus"],
+    start: ["start_time", "startTime"],
+    end: ["end_time", "endTime"],
+    remains: ["remains_time", "remainsTime"],
+};
+
+const WEEKLY_LANE: LaneKeys = LaneKeys {
+    total: ["current_weekly_total_count", "currentWeeklyTotalCount"],
+    usage: ["current_weekly_usage_count", "currentWeeklyUsageCount"],
+    remaining_percent: [
+        "current_weekly_remaining_percent",
+        "currentWeeklyRemainingPercent",
+    ],
+    status: ["current_weekly_status", "currentWeeklyStatus"],
+    start: ["weekly_start_time", "weeklyStartTime"],
+    end: ["weekly_end_time", "weeklyEndTime"],
+    remains: ["weekly_remains_time", "weeklyRemainsTime"],
+};
+
+/// Raw lane fields. MiniMax's `usage_count` is the remaining count.
+#[derive(Clone, Copy)]
+struct LaneFields {
+    total: Option<i64>,
+    remaining: Option<i64>,
+    remaining_percent: Option<f64>,
+    status: Option<i64>,
+    start: Option<i64>,
+    end: Option<i64>,
+    remains: Option<i64>,
+}
+
+impl LaneKeys {
+    fn read(&self, entry: &Value) -> LaneFields {
+        let field = |[snake, camel]: [&str; 2]| get_field(entry, snake, camel);
+        LaneFields {
+            total: value_i64(field(self.total)),
+            remaining: value_i64(field(self.usage)),
+            remaining_percent: json::lenient_f64(field(self.remaining_percent)),
+            status: value_i64(field(self.status)),
+            start: value_i64(field(self.start)),
+            end: value_i64(field(self.end)),
+            remains: value_i64(field(self.remains)),
+        }
+    }
+}
+
+/// The next `time` today in `tz`, or a day from now once it has passed.
+pub(super) fn next_time_today(
+    time: chrono::NaiveTime,
+    tz: FixedOffset,
+    now: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    let dt = now
+        .date_naive()
+        .and_time(time)
+        .and_local_timezone(tz)
+        .single()?;
+    let candidate = dt.with_timezone(&Utc);
+    Some(if candidate < now {
+        now + Duration::days(1)
+    } else {
+        candidate
+    })
 }
 
 /// Decode an epoch integer that may be in milliseconds, seconds, or unparseable.
@@ -268,7 +354,7 @@ fn time_range_string(start: Option<DateTime<Utc>>, end: Option<DateTime<Utc>>) -
     let (Some(start), Some(end)) = (start, end) else {
         return "N/A".to_string();
     };
-    let tz = FixedOffset::east_opt(8 * 3600).unwrap();
+    let tz = CN_TZ;
     format!(
         "{}-{}(UTC+8)",
         start.with_timezone(&tz).format("%H:%M"),
@@ -283,7 +369,7 @@ fn weekly_time_range_string(
 ) -> Option<String> {
     let start = start?;
     let end = end?;
-    let tz = FixedOffset::east_opt(8 * 3600).unwrap();
+    let tz = CN_TZ;
     Some(format!(
         "{} - {}(UTC+8)",
         start.with_timezone(&tz).format("%m/%d %H:%M"),
@@ -303,25 +389,15 @@ fn reset_description(
     {
         let interval = (resets - now).num_seconds();
         if interval < 60 {
-            return format!("Resets in {} seconds", interval);
-        } else if interval < 3600 {
-            let minutes = interval / 60;
-            return format!(
-                "Resets in {} minute{}",
-                minutes,
-                if minutes == 1 { "" } else { "s" }
-            );
-        } else if interval < 86400 {
-            let hours = interval / 3600;
-            return format!(
-                "Resets in {} hour{}",
-                hours,
-                if hours == 1 { "" } else { "s" }
-            );
-        } else {
-            let days = interval / 86400;
-            return format!("Resets in {} day{}", days, if days == 1 { "" } else { "s" });
+            return format!("Resets in {interval} seconds");
         }
+        let (unit_seconds, unit) = [(86_400, "day"), (3_600, "hour")]
+            .into_iter()
+            .find(|(unit_seconds, _)| interval >= *unit_seconds)
+            .unwrap_or((60, "minute"));
+        let count = interval / unit_seconds;
+        let plural = if count == 1 { "" } else { "s" };
+        return format!("Resets in {count} {unit}{plural}");
     }
     format!("{window_type}: {time_range}")
 }
@@ -329,23 +405,22 @@ fn reset_description(
 /// Build a `RemainsRow` from the raw interval/weekly fields (upstream
 /// `makeServiceUsage`). Returns `None` when the row is a placeholder that
 /// should be skipped.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "signature mirrors the flat upstream makeServiceUsage payload fields one-to-one"
-)]
 fn make_remains_row(
     service_type: &str,
     window_type_override: Option<&str>,
-    total: Option<i64>,
-    remaining: Option<i64>,
-    remaining_percent: Option<f64>,
-    status: Option<i64>,
-    start: Option<i64>,
-    end: Option<i64>,
-    remains_time: Option<i64>,
+    lane: &LaneFields,
     now: DateTime<Utc>,
     is_weekly: bool,
 ) -> Option<RemainsRow> {
+    let LaneFields {
+        total,
+        remaining,
+        remaining_percent,
+        status,
+        start,
+        end,
+        remains: remains_time,
+    } = *lane;
     if is_unavailable_quota_placeholder(
         service_type,
         window_type_override,
@@ -462,7 +537,7 @@ fn parse_resets_at_from_time_range(
     now: DateTime<Utc>,
 ) -> Option<DateTime<Utc>> {
     let lower = window_type.trim().to_lowercase();
-    let tz = FixedOffset::east_opt(8 * 3600).unwrap();
+    let tz = CN_TZ;
 
     if lower == "today" {
         let parts: Vec<&str> = time_range.splitn(2, '-').collect();
@@ -487,13 +562,7 @@ fn parse_resets_at_from_time_range(
             re.replace_all(end_part, "").trim().to_string()
         };
         let time = chrono::NaiveTime::parse_from_str(&end_clean, "%H:%M").ok()?;
-        let today = now.date_naive();
-        let dt = today.and_time(time).and_local_timezone(tz).single()?;
-        let mut candidate = dt.with_timezone(&Utc);
-        if candidate < now {
-            candidate = now + Duration::days(1);
-        }
-        return Some(candidate);
+        return next_time_today(time, tz, now);
     }
 
     None
@@ -534,30 +603,15 @@ fn parse_plan_name_from_data(data: &Value) -> Option<String> {
             let name = scalar_string(get_field(e, "model_name", "modelName"))
                 .map(|n| n.trim().to_lowercase())
                 .unwrap_or_default();
+            let lane = INTERVAL_LANE.read(e);
             name == "video"
                 && is_unavailable_quota_placeholder(
                     "Text to Video",
                     None,
-                    value_i64(get_field(
-                        e,
-                        "current_interval_status",
-                        "currentIntervalStatus",
-                    )),
-                    value_i64(get_field(
-                        e,
-                        "current_interval_total_count",
-                        "currentIntervalTotalCount",
-                    )),
-                    value_i64(get_field(
-                        e,
-                        "current_interval_usage_count",
-                        "currentIntervalUsageCount",
-                    )),
-                    json::lenient_f64(get_field(
-                        e,
-                        "current_interval_remaining_percent",
-                        "currentIntervalRemainingPercent",
-                    )),
+                    lane.status,
+                    lane.total,
+                    lane.remaining,
+                    lane.remaining_percent,
                 )
         });
         if has_text_generation && has_unavailable_video {
@@ -627,35 +681,9 @@ fn parse_remains(
         let service_type = map_model_name_to_service_type(&model_name);
 
         // Interval row
-        if let Some(mut row) = make_remains_row(
-            &service_type,
-            None,
-            value_i64(get_field(
-                entry,
-                "current_interval_total_count",
-                "currentIntervalTotalCount",
-            )),
-            value_i64(get_field(
-                entry,
-                "current_interval_usage_count",
-                "currentIntervalUsageCount",
-            )),
-            json::lenient_f64(get_field(
-                entry,
-                "current_interval_remaining_percent",
-                "currentIntervalRemainingPercent",
-            )),
-            value_i64(get_field(
-                entry,
-                "current_interval_status",
-                "currentIntervalStatus",
-            )),
-            value_i64(get_field(entry, "start_time", "startTime")),
-            value_i64(get_field(entry, "end_time", "endTime")),
-            value_i64(get_field(entry, "remains_time", "remainsTime")),
-            now,
-            false,
-        ) {
+        if let Some(mut row) =
+            make_remains_row(&service_type, None, &INTERVAL_LANE.read(entry), now, false)
+        {
             row.model_name = model_name.clone();
             rows.push(row);
         }
@@ -665,29 +693,7 @@ fn parse_remains(
             && let Some(mut row) = make_remains_row(
                 &service_type,
                 Some("Weekly"),
-                value_i64(get_field(
-                    entry,
-                    "current_weekly_total_count",
-                    "currentWeeklyTotalCount",
-                )),
-                value_i64(get_field(
-                    entry,
-                    "current_weekly_usage_count",
-                    "currentWeeklyUsageCount",
-                )),
-                json::lenient_f64(get_field(
-                    entry,
-                    "current_weekly_remaining_percent",
-                    "currentWeeklyRemainingPercent",
-                )),
-                value_i64(get_field(
-                    entry,
-                    "current_weekly_status",
-                    "currentWeeklyStatus",
-                )),
-                value_i64(get_field(entry, "weekly_start_time", "weeklyStartTime")),
-                value_i64(get_field(entry, "weekly_end_time", "weeklyEndTime")),
-                value_i64(get_field(entry, "weekly_remains_time", "weeklyRemainsTime")),
+                &WEEKLY_LANE.read(entry),
                 now,
                 true,
             )

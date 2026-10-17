@@ -23,6 +23,12 @@ pub use api::CursorApi;
 use cost_cooldown::{CostCooldown, credential_fingerprint};
 use token_cost::TokenCostError;
 
+/// Quota usage plus the best-effort token-cost report.
+type CursorFetch = (
+    api::CursorUsageResult,
+    Option<token_cost::CursorTokenCostReport>,
+);
+
 /// Reset-window pace (upstream `CursorProviderDescriptor.pace`, v0.70.0): any
 /// window with a billing-cycle length.
 pub(crate) const PACE_CAPABILITY: crate::core::ProviderPaceCapability =
@@ -49,16 +55,7 @@ impl CursorProvider {
         }
     }
 
-    async fn fetch_web_usage(
-        &self,
-        ctx: &FetchContext,
-    ) -> Result<
-        (
-            api::CursorUsageResult,
-            Option<token_cost::CursorTokenCostReport>,
-        ),
-        ProviderError,
-    > {
+    async fn fetch_web_usage(&self, ctx: &FetchContext) -> Result<CursorFetch, ProviderError> {
         if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
             return self.fetch_usage_and_token_report(cookie_header).await;
         }
@@ -83,14 +80,21 @@ impl CursorProvider {
         Err(rejected.unwrap_or_else(|| sessions.exhaustion_error()))
     }
 
+    async fn fetch_usage_and_token_report(
+        &self,
+        cookie_header: &str,
+    ) -> Result<CursorFetch, ProviderError> {
+        let usage = self
+            .api
+            .fetch_usage_with_cookie_header(cookie_header)
+            .await?;
+        let token_report = self.fetch_token_report_best_effort(cookie_header).await;
+        Ok((usage, token_report))
+    }
+
     /// One usage pass with the app's local session; `None` means the app
     /// session was unavailable or rejected (caller falls back to cookies).
-    async fn fetch_via_app_session(
-        &self,
-    ) -> Option<(
-        api::CursorUsageResult,
-        Option<token_cost::CursorTokenCostReport>,
-    )> {
+    async fn fetch_via_app_session(&self) -> Option<CursorFetch> {
         let app_cookie = app_auth::preferred_auto_cookie_header()?;
         let usage = match self.api.fetch_usage_with_cookie_header(&app_cookie).await {
             Ok(usage) => usage,
@@ -104,24 +108,6 @@ impl CursorProvider {
         app_auth::store_validated_app_session(&app_cookie);
         let token_report = self.fetch_token_report_best_effort(&app_cookie).await;
         Some((usage, token_report))
-    }
-
-    async fn fetch_usage_and_token_report(
-        &self,
-        cookie_header: &str,
-    ) -> Result<
-        (
-            api::CursorUsageResult,
-            Option<token_cost::CursorTokenCostReport>,
-        ),
-        ProviderError,
-    > {
-        let usage = self
-            .api
-            .fetch_usage_with_cookie_header(cookie_header)
-            .await?;
-        let token_report = self.fetch_token_report_best_effort(cookie_header).await;
-        Ok((usage, token_report))
     }
 
     /// Best-effort token-cost page; never fail the main usage fetch.

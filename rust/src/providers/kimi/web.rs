@@ -57,11 +57,30 @@ pub(super) struct WebFetchFailure {
 }
 
 impl WebFetchFailure {
+    fn before_token(error: ProviderError) -> Self {
+        Self {
+            error,
+            had_token: false,
+        }
+    }
+
     fn after_token(error: ProviderError) -> Self {
         Self {
             error,
             had_token: true,
         }
+    }
+}
+
+/// One automatic token attempt. `None` means the server rejected the token
+/// and the chain moves on; anything else ends it.
+fn settle_attempt(
+    result: Result<UsageSnapshot, ProviderError>,
+) -> Option<Result<UsageSnapshot, WebFetchFailure>> {
+    match result {
+        Ok(usage) => Some(Ok(usage)),
+        Err(ProviderError::AuthRequired) => None,
+        Err(error) => Some(Err(WebFetchFailure::after_token(error))),
     }
 }
 
@@ -191,24 +210,9 @@ pub(super) async fn fetch_web_session_isolated(
     // its own session cookie and never fall back to another ambient credential
     // or browser account (upstream per-provider token account routing).
     if account_isolated {
-        let token = match selected_account_auth_token(cookie_header) {
-            Ok(token) => token,
-            Err(error) => {
-                return Err(WebFetchFailure {
-                    error,
-                    had_token: false,
-                });
-            }
-        };
-        let http = match client() {
-            Ok(http) => http,
-            Err(error) => {
-                return Err(WebFetchFailure {
-                    error,
-                    had_token: false,
-                });
-            }
-        };
+        let token =
+            selected_account_auth_token(cookie_header).map_err(WebFetchFailure::before_token)?;
+        let http = client().map_err(WebFetchFailure::before_token)?;
         return fetch_via_web_token(&http, &KimiWebCredential::plain(token), region)
             .await
             .map_err(WebFetchFailure::after_token);
@@ -267,33 +271,28 @@ where
     }
 
     if !browser_import_allowed(input.cookie_source) {
-        return Err(WebFetchFailure {
-            error: browser_import_error(input.cookie_source),
-            had_token: false,
-        });
+        return Err(WebFetchFailure::before_token(browser_import_error(
+            input.cookie_source,
+        )));
     }
 
     // Read and try the desktop session first. Browser cookies are intentionally
     // read only after the server rejects this automatic session, so a healthy
     // desktop account never causes another credential store to be touched.
     let desktop_token = (input.desktop_token)(input.region);
-    if let Some(credential) = desktop_token.clone() {
-        match fetch(credential).await {
-            Ok(usage) => return Ok(usage),
-            Err(ProviderError::AuthRequired) => {}
-            Err(error) => return Err(WebFetchFailure::after_token(error)),
-        }
+    if let Some(credential) = desktop_token.clone()
+        && let Some(outcome) = settle_attempt(fetch(credential).await)
+    {
+        return outcome;
     }
 
     let browser_token = (input.browser_token)(input.region).filter(|token| {
         desktop_token.as_ref().map(KimiWebCredential::token) != Some(token.as_str())
     });
-    if let Some(token) = browser_token.clone() {
-        match fetch(KimiWebCredential::plain(token)).await {
-            Ok(usage) => return Ok(usage),
-            Err(ProviderError::AuthRequired) => {}
-            Err(error) => return Err(WebFetchFailure::after_token(error)),
-        }
+    if let Some(token) = browser_token.clone()
+        && let Some(outcome) = settle_attempt(fetch(KimiWebCredential::plain(token)).await)
+    {
+        return outcome;
     }
 
     // Local-storage tokens are read last, only after every cookie source
@@ -309,10 +308,8 @@ where
         candidate.source == WebTokenSource::LocalStorage
             && seen.insert(candidate.credential.token().to_string())
     }) {
-        match fetch(candidate.credential).await {
-            Ok(usage) => return Ok(usage),
-            Err(ProviderError::AuthRequired) => {}
-            Err(error) => return Err(WebFetchFailure::after_token(error)),
+        if let Some(outcome) = settle_attempt(fetch(candidate.credential).await) {
+            return outcome;
         }
     }
 
@@ -332,7 +329,7 @@ fn selected_account_auth_token(cookie_header: Option<&str>) -> Result<String, Pr
         .ok_or(ProviderError::AuthRequired)
 }
 
-fn client() -> Result<reqwest::Client, ProviderError> {
+pub(super) fn client() -> Result<reqwest::Client, ProviderError> {
     crate::core::credentialed_http_client_builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -383,14 +380,17 @@ async fn fetch_subscription_details(
     // completed statistics response when the plan endpoint is slow or absent.
     let stats = tokio::time::timeout(
         SUBSCRIPTION_ENRICHMENT_TIMEOUT,
-        fetch_subscription_for_enrichment(client, credential, region),
+        fetch_subscription_for_enrichment_result(client, credential, region),
     );
     let plan = tokio::time::timeout(
         SUBSCRIPTION_ENRICHMENT_TIMEOUT,
         fetch_subscription_plan(client, credential, region),
     );
     let (stats, plan) = tokio::join!(stats, plan);
-    (stats.ok().flatten(), plan.ok().flatten())
+    (
+        stats.ok().and_then(Result::ok).flatten(),
+        plan.ok().flatten(),
+    )
 }
 
 pub(super) fn snapshot_from_web_usage_response(
@@ -444,19 +444,6 @@ pub(super) async fn fetch_subscription_plan(
             .and_then(|response| response.plan_name()),
         _ => None,
     }
-}
-
-// Kept for `code_api`: resolve the subscription stats snapshot with a web
-// token; any failure means "no enrichment", never an error.
-pub(super) async fn fetch_subscription_for_enrichment(
-    client: &Client,
-    credential: &KimiWebCredential,
-    region: KimiRegion,
-) -> Option<KimiSubscriptionStatsResponse> {
-    fetch_subscription_for_enrichment_result(client, credential, region)
-        .await
-        .ok()
-        .flatten()
 }
 
 pub(super) async fn fetch_subscription_for_enrichment_result(
@@ -692,6 +679,120 @@ mod tests {
 
     fn no_local_storage(_: KimiRegion) -> Vec<String> {
         Vec::new()
+    }
+
+    thread_local! {
+        static READS: std::cell::Cell<[u32; 3]> = const { std::cell::Cell::new([0; 3]) };
+    }
+
+    fn count_read(source: usize) {
+        READS.with(|reads| {
+            let mut counts = reads.get();
+            counts[source] += 1;
+            reads.set(counts);
+        });
+    }
+
+    /// Desktop, browser and local-storage reads since the last call.
+    fn take_reads() -> [u32; 3] {
+        READS.with(|reads| reads.replace([0; 3]))
+    }
+
+    fn counted_desktop(_: KimiRegion) -> Option<KimiWebCredential> {
+        count_read(0);
+        Some(KimiWebCredential::plain("desktop-token"))
+    }
+
+    fn counted_browser(_: KimiRegion) -> Option<String> {
+        count_read(1);
+        Some("browser-token".to_string())
+    }
+
+    fn counted_no_desktop(_: KimiRegion) -> Option<KimiWebCredential> {
+        count_read(0);
+        None
+    }
+
+    fn counted_no_browser(_: KimiRegion) -> Option<String> {
+        count_read(1);
+        None
+    }
+
+    fn counted_local_storage(_: KimiRegion) -> Vec<String> {
+        count_read(2);
+        vec!["browser-token".to_string(), "storage-token".to_string()]
+    }
+
+    fn accept_storage_only(token: &str) -> Result<UsageSnapshot, ProviderError> {
+        if token == "storage-token" {
+            Ok(usage(40.0))
+        } else {
+            Err(ProviderError::AuthRequired)
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_local_storage_only_token_reports_none_tried() {
+        take_reads();
+        let (result, sent) = run_chain(
+            WebTokenInput {
+                local_storage_tokens: counted_local_storage,
+                ..input(None, "auto", counted_no_desktop, counted_no_browser)
+            },
+            reject_all,
+        )
+        .await;
+        let failure = result.expect_err("local-storage token rejected");
+        // Kept quirk: a rejected local-storage-only token reads as "no token".
+        assert!(!failure.had_token);
+        assert!(matches!(failure.error, ProviderError::AuthRequired));
+        assert_eq!(sent, ["browser-token", "storage-token"]);
+        assert_eq!(take_reads(), [2, 2, 2]);
+    }
+
+    #[tokio::test]
+    async fn local_storage_tokens_follow_rejected_cookie_tokens() {
+        take_reads();
+        let (result, sent) = run_chain(
+            WebTokenInput {
+                local_storage_tokens: counted_local_storage,
+                ..input(None, "auto", counted_desktop, counted_browser)
+            },
+            accept_storage_only,
+        )
+        .await;
+        assert_eq!(
+            result.expect("storage token accepted").primary.used_percent,
+            40.0
+        );
+        assert_eq!(sent, ["desktop-token", "browser-token", "storage-token"]);
+        assert_eq!(take_reads(), [2, 2, 1]);
+
+        let (result, sent) = run_chain(
+            WebTokenInput {
+                local_storage_tokens: counted_local_storage,
+                ..input(None, "auto", counted_desktop, counted_browser)
+            },
+            reject_all,
+        )
+        .await;
+        assert!(result.expect_err("every token rejected").had_token);
+        assert_eq!(sent, ["desktop-token", "browser-token", "storage-token"]);
+        assert_eq!(take_reads(), [2, 2, 1]);
+
+        let (result, sent) = run_chain(
+            WebTokenInput {
+                local_storage_tokens: counted_local_storage,
+                ..input(None, "auto", counted_no_desktop, counted_no_browser)
+            },
+            server_error,
+        )
+        .await;
+        let failure = result.expect_err("server error");
+        assert!(failure.had_token);
+        assert!(matches!(failure.error, ProviderError::Other(message) if message.contains("500")));
+        assert_eq!(sent, ["browser-token"]);
+        assert_eq!(take_reads(), [2, 2, 1]);
     }
 
     fn static_local_storage(_: KimiRegion) -> Vec<String> {

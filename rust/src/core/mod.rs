@@ -32,14 +32,12 @@ mod quota_burndown;
 mod rate_window;
 mod redactor;
 mod session_equivalent_forecast;
-mod session_quota;
 mod sqlite;
 mod throughput;
 mod timezone;
 mod token_accounts;
 mod usage_pace;
 mod usage_snapshot;
-mod widget_snapshot;
 
 pub use adaptive_refresh::*;
 pub use aws_signing::*;
@@ -75,11 +73,9 @@ pub use quota_burndown::{
 pub use rate_window::*;
 pub use redactor::*;
 pub use session_equivalent_forecast::*;
-pub use session_quota::*;
 pub use sqlite::*;
 pub use throughput::*;
 pub use timezone::{local_timezone_name, try_local_timezone_name};
 pub use token_accounts::*;
 pub use usage_pace::*;
 pub use usage_snapshot::*;
-pub use widget_snapshot::*;
