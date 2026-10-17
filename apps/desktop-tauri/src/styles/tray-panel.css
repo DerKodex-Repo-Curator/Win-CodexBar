@@ -534,15 +534,41 @@ body:has(.tray-panel-reveal),
 .tray-detail__pace-fill[data-pace="steady"] {
   background: var(--pace-steady-fg);
 }
+.tray-detail__pace-fill[data-pace="racing"] {
+  background: var(--pace-racing-fg);
 }
+.tray-detail__pace-fill[data-pace="burning"] {
+  background: var(--pace-burning-fg);
 }
 
+.tray-detail__pace-fill--expected {
+  background: var(--pace-track-expected-fg) !important;
 }
 
+.tray-detail__pace-label[data-pace="slow"] {
+  color: var(--pace-slow-fg);
+}
+.tray-detail__pace-label[data-pace="steady"] {
+  color: var(--pace-steady-fg);
+}
+.tray-detail__pace-label[data-pace="racing"] {
+  color: var(--pace-racing-fg);
+}
+.tray-detail__pace-label[data-pace="burning"] {
+  color: var(--pace-burning-fg);
 }
 
+/* ── Tray card: pace badge pill ──────────────────────────── */
 
+.tray-pace-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
   font-weight: 600;
+  line-height: 1.5;
   white-space: nowrap;
 }
 
@@ -603,3 +629,4 @@ body:has(.tray-panel-reveal),
   flex-direction: column;
   gap: 16px;
 }
+

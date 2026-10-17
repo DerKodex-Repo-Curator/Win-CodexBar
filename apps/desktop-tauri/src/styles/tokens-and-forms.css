@@ -310,9 +310,16 @@ html {
   padding: 16px;
 }
 
+.shell--settings {
+  max-width: 540px;
+  padding: 16px 24px;
+}
+
 /* Preferences window container — compact, native-feeling, no hero framing. */
 .settings-surface {
   margin: 0 auto;
+  max-width: 720px;
+  padding: 14px 18px 20px;
   animation: surfaceFadeIn 80ms ease-out;
 }
 
@@ -387,6 +394,8 @@ html {
 /* ── Settings ──────────────────────────────────────────────────────── */
 
 .settings {
+  display: flex;
+  flex-direction: column;
   gap: 0;
 }
 
@@ -412,13 +421,20 @@ html {
 .settings-section {
   display: flex;
   flex-direction: column;
+  gap: 4px;
 }
 
 /* Section titles mirror upstream SwiftUI PreferencesView grouped form headers:
    `.font(.caption)` `.foregroundStyle(.secondary)` `.textCase(.uppercase)`. */
 .settings-section__title {
+  margin: 18px 0 6px;
   padding: 0;
   border-bottom: none;
+  color: var(--text-secondary);
+  font-size: var(--font-caption);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .settings-section__title:first-child {
@@ -434,6 +450,8 @@ html {
 
 /* field row */
 .settings-field {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 6px 10px;
@@ -467,6 +485,17 @@ html {
 
 .settings-field__control {
   flex-shrink: 0;
+}
+
+.settings-field__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-field__value {
+  font-size: 0.85rem;
+  color: var(--provider-row-text-secondary);
 }
 
 /* macOS-style checkbox (replaces iOS-style switch toggle) */
@@ -545,6 +574,12 @@ html {
 
 /* select dropdown */
 .select {
+  padding: 6px 28px 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  font-size: 0.85rem;
   font-family: inherit;
   cursor: pointer;
   appearance: none;
@@ -565,6 +600,14 @@ html {
 
 /* number input */
 .number-input {
+  width: 52px;
+  height: 24px;
+  padding: 2px 6px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  font-size: var(--font-body);
   font-family: inherit;
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -583,6 +626,12 @@ html {
 /* text input */
 .text-input {
   width: 160px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  font-size: 0.85rem;
   font-family: inherit;
 }
 
@@ -849,6 +898,9 @@ html {
 }
 
 .about-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
   margin-bottom: 12px;
 }
 
@@ -864,10 +916,61 @@ html {
 }
 
 .about-title {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
+.about-version {
+  margin: 2px 0 0;
+  font-size: 0.88rem;
+  color: var(--text-eyebrow);
+}
+
+.about-build {
+  color: var(--text-muted);
+}
+
+.about-tagline {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  font-style: italic;
+}
+
+.about-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 12px 20px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.about-detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.about-detail-label {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.about-detail-value {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
 .about-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
@@ -877,11 +980,19 @@ html {
 }
 
 .about-links {
+  display: flex;
   align-items: center;
+  gap: 8px;
   margin-bottom: 12px;
 }
 
 .about-link {
+  font-size: 0.84rem;
+  color: var(--text-eyebrow);
+  text-decoration: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
   font: inherit;
   appearance: none;
 }
@@ -902,4 +1013,6 @@ html {
 
 .about-link--inline {
   font-size: inherit;
+  color: var(--text-eyebrow);
 }
+

@@ -255,6 +255,22 @@
   overflow-wrap: anywhere;
 }
 
+.provider-detail-error__copy {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.provider-detail-error__copy:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
 @media (max-height: 620px) {
   .menu-surface--tray .provider-grid {
     gap: 6px 5px;
@@ -355,3 +371,4 @@ button, input, select, textarea {
   flex-wrap: wrap;
   white-space: normal;
 }
+

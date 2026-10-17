@@ -8,6 +8,9 @@
   --menu-card-header-column-gap: 12px;
   display: flex;
   flex-direction: column;
+  /* outer VStack(alignment:.leading, spacing: 6) */
+  gap: 6px;
+  padding: var(--menu-card-header-only-y) var(--menu-card-x);
   text-align: left;
   align-items: stretch;
 }
@@ -32,6 +35,7 @@
   min-width: 0;
   font-size: 0.66rem;
   color: var(--provider-row-text-secondary);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -175,6 +179,8 @@
 }
 
 .menu-metric__pct {
+  /* upstream: .font(.footnote) ≈ 11px primary */
+  font-size: 11px;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
   flex: 0 0 auto;
@@ -183,12 +189,14 @@
 /* Detail-backed window description (for example spend amounts): its own
    secondary line under the metric row, never reset wording. */
 .menu-metric__detail {
+  font-size: 11px;
   color: var(--text-secondary);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .menu-metric__reset {
+  font-size: 11px;
   color: var(--text-secondary);
   /* Upstream 0.49.0 #2742 (refs #2182): long metric reset and pace details
      wrap to a second line instead of truncating, so non-English locales keep
@@ -215,6 +223,7 @@
 /* Upstream 0.69.0 #4091 status row: a window blocked by a longer exhausted
    pool shows its title and one secondary footnote line instead of a bar. */
 .menu-metric__status {
+  font-size: 11px;
   color: var(--text-secondary);
   min-width: 0;
   overflow: hidden;
@@ -293,3 +302,4 @@
 /* ── Cost section (upstream `tokenUsage` block) ─────────────────────── */
 
 /* ── Pace section (Tauri-only; sits below cost in the same card) ────── */
+

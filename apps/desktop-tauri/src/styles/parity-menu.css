@@ -171,8 +171,14 @@
    button width — use the same dense icon grid as upstream. */
 .provider-grid {
   display: grid;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  gap: 9px 3px;
   margin: 0 0 2px;
+  padding: 8px 10px 6px;
   flex-shrink: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
 }
 
 [data-theme="light"] .provider-grid {
@@ -184,6 +190,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  min-height: 44px;
+  padding: 2px 1px 3px;
   border: none;
   border-radius: 5px;
   background: transparent;
@@ -236,6 +246,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 22px;
   line-height: 1.15;
   text-align: center;
 }
@@ -274,6 +285,8 @@
    4px track at bottom of each grid button, fill = remainingPercent */
 .provider-grid__weekly-track {
   display: block;
+  width: 18px;
+  height: 3px;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
@@ -449,3 +462,4 @@
   margin: 4px 0;
   background: none;
 }
+

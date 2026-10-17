@@ -376,6 +376,14 @@
   color: var(--accent);
 }
 
+.sound-enabled-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .notification-sound-row {
   display: inline-flex;
   align-items: center;
@@ -772,3 +780,5 @@
     transition: none !important;
   }
 }
+
+

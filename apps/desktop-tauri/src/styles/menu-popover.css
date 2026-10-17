@@ -25,7 +25,12 @@
   gap: 8px;
   /* upstream .padding(.horizontal, 10) .padding(.vertical, 6) */
   padding: 6px 10px;
+  width: 100%;
+  min-width: 260px;
+  font-size: 13px;
+  line-height: 1.30;
   color: var(--text-primary);
+  background: var(--menu-popover-bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -39,8 +44,79 @@
   cursor: not-allowed;
 }
 
+/* Header bar — small CodexBar wordmark + iconified actions
+   (refresh / settings / pop-out). Upstream's NSMenu has no dedicated
+   title row; we keep one slim toolbar pinned to the top so the popover
+   exposes the same controls without dominating the layout. */
+.menu-surface__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0;
+  min-height: 24px;
+}
+
+.menu-surface__title {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-secondary);
+}
+
 /* Wordmark cluster: small accent badge + "CodexBar" title.
    Mirrors a menu-bar app brand glyph so the header isn't pure text. */
+.menu-surface__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.menu-surface__brand-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.menu-surface__actions {
+  display: flex;
+  gap: 2px;
+}
+
+.menu-surface__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.menu-surface__btn:hover {
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+}
+
+.menu-surface__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.menu-surface__summary {
+  padding: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-eyebrow);
+}
 
 .menu-surface__body {
   display: flex;
@@ -102,7 +178,11 @@
 .menu-stack {
   display: flex;
   flex-direction: column;
+  /* upstream MenuContent VStack(spacing: 8) */
+  gap: 6px;
+  flex: 1 1 auto;
   min-height: 0;
+  max-height: 100%;
   overflow-y: auto;
 }
 
@@ -280,6 +360,7 @@ html:has(.menu-surface--tray) {
   border: none;
   border-radius: 0;
   padding: 8px 12px 6px;
+  grid-template-columns: repeat(10, 24px);
   justify-content: start;
   gap: 8px 6px;
 }
@@ -368,3 +449,4 @@ html:has(.menu-surface--tray) {
 .menu-surface--tray .menu-metric__detail {
   font-size: 10px;
 }
+
