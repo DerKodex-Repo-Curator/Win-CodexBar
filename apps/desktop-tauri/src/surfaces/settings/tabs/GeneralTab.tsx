@@ -146,6 +146,7 @@ export default function GeneralTab({
   saving,
 }: TabProps & { mode?: "general" | "notifications" }) {
   const { t } = useLocale();
+  const ctl = { settings, set, saving };
   const [playingSound, setPlayingSound] = useState<NotificationSoundEvent | null>(null);
   const [soundError, setSoundError] = useState<string | null>(null);
   const [shortcutError, setShortcutError] = useState<string | null>(null);
