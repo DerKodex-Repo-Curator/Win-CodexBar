@@ -68,6 +68,43 @@ fn temp_db_path(label: &str) -> PathBuf {
 }
 
 #[test]
+fn cached_scan_tracks_live_wal_commits() {
+    let db = temp_db_path("wal-cache");
+    let auth = db.with_extension("auth.json");
+    std::fs::write(&auth, r#"{"opencode-go":{"key":"k"}}"#).unwrap();
+    let now = Utc.with_ymd_and_hms(2026, 3, 18, 12, 0, 0).unwrap();
+    let created = now.timestamp_millis() - 60_000;
+
+    // The writer stays open so commits land in the -wal sidecar, not the main file.
+    let writer = Connection::open(&db).unwrap();
+    writer.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+    writer
+        .execute_batch(
+            "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT, time_created INTEGER);",
+        )
+        .unwrap();
+    insert_message(&writer, "m1", created, Some(3.0), None, None);
+
+    let cache = ScanCache::new();
+    let first = fetch_from_paths_with_cache(&auth, &db, now, &cache).unwrap();
+    assert!(
+        (first.rolling_usage_percent - 25.0).abs() < 0.05,
+        "{first:?}"
+    );
+    let cached = cache.read(&db, || -> Result<Vec<UsageRow>, ProviderError> {
+        panic!("unchanged database must not be rescanned")
+    });
+    assert_eq!(cached.unwrap().len(), 1);
+
+    insert_message(&writer, "m2", created, Some(3.0), None, None);
+    let second = fetch_from_paths_with_cache(&auth, &db, now, &cache).unwrap();
+    assert!(
+        (second.rolling_usage_percent - 50.0).abs() < 0.05,
+        "a WAL commit must invalidate the cached scan: {second:?}"
+    );
+}
+
+#[test]
 fn unreadable_database_reports_the_sqlite_error_prefix() {
     let db = temp_db_path("garbage");
     std::fs::write(&db, b"not a sqlite database, just synthetic bytes").unwrap();

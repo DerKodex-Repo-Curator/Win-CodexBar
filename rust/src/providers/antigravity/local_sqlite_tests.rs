@@ -2,7 +2,7 @@ use super::*;
 use crate::providers::antigravity::local_proto::test_fixtures::{field_bytes, field_varint};
 use rusqlite::params;
 
-fn valid_turn_blob(input: u64, timestamp_seconds: u64) -> Vec<u8> {
+pub(super) fn valid_turn_blob(input: u64, timestamp_seconds: u64) -> Vec<u8> {
     valid_turn_blob_with_model(input, timestamp_seconds, None)
 }
 

@@ -7,9 +7,11 @@
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Timelike, Utc};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use super::tokens::{RowTokens, TokenSums};
 use crate::core::{ProviderError, ProviderFetchResult};
+use scan_cache::ScanCache;
 
 const FIVE_HOURS_MS: i64 = 5 * 60 * 60 * 1000;
 const WEEK_MS: i64 = 7 * 24 * 60 * 60 * 1000;
@@ -145,7 +147,7 @@ pub fn candidate_paths() -> Vec<(PathBuf, PathBuf)> {
 pub fn fetch_local_usage(now: DateTime<Utc>) -> Result<LocalUsageSnapshot, ProviderError> {
     let mut last_err: Option<ProviderError> = None;
     for (auth, db) in candidate_paths() {
-        match fetch_from_paths(&auth, &db, now) {
+        match fetch_from_paths_with_cache(&auth, &db, now, ScanCache::shared()) {
             Ok(snap) => return Ok(snap),
             Err(e) => last_err = Some(e),
         }
@@ -153,10 +155,21 @@ pub fn fetch_local_usage(now: DateTime<Utc>) -> Result<LocalUsageSnapshot, Provi
     Err(last_err.unwrap_or_else(not_detected))
 }
 
+/// Explicit-path reads (tests, diagnostics) get a private cache so they never
+/// observe or populate the process-wide scan cache.
 pub fn fetch_from_paths(
     auth_path: &Path,
     db_path: &Path,
     now: DateTime<Utc>,
+) -> Result<LocalUsageSnapshot, ProviderError> {
+    fetch_from_paths_with_cache(auth_path, db_path, now, &ScanCache::new())
+}
+
+fn fetch_from_paths_with_cache(
+    auth_path: &Path,
+    db_path: &Path,
+    now: DateTime<Utc>,
+    cache: &ScanCache,
 ) -> Result<LocalUsageSnapshot, ProviderError> {
     let has_auth = has_auth_key(auth_path);
     if !db_path.exists() {
@@ -169,7 +182,7 @@ pub fn fetch_from_paths(
         });
     }
 
-    let rows = read_rows(db_path)?;
+    let rows = cache.read(db_path, || read_rows(db_path))?;
     if !has_auth && rows.is_empty() {
         return Err(not_detected());
     }
@@ -509,12 +522,12 @@ pub fn model_cost_summary_scan(now: DateTime<Utc>, days: u32) -> Option<ModelCos
 /// Read usage rows from the first candidate install that yields any. Returns
 /// `None` when no install is reachable (auth+db both absent) rather than
 /// propagating `NotInstalled`, since the cost surfaces treat "no data" as empty.
-fn read_available_rows() -> Option<Vec<UsageRow>> {
+fn read_available_rows() -> Option<Arc<Vec<UsageRow>>> {
     for (auth, db) in candidate_paths() {
         if !db.exists() {
             continue;
         }
-        match read_rows(&db) {
+        match ScanCache::shared().read(&db, || read_rows(&db)) {
             Ok(rows) if !rows.is_empty() || has_auth_key(&auth) => return Some(rows),
             Ok(_) => continue,
             Err(_) => continue,
@@ -604,6 +617,8 @@ fn anchored_month(year: i32, month: u32, anchor: &DateTime<Utc>) -> DateTime<Utc
         .unwrap_or_default();
     Utc.from_utc_datetime(&ndt)
 }
+
+mod scan_cache;
 
 #[cfg(test)]
 mod test_db;
