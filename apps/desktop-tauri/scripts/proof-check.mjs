@@ -143,12 +143,22 @@ async function launchBrowser(opts) {
     ...(opts.headed ? [] : ["--headless=new", "--disable-gpu"]),
     "about:blank",
   ];
-  const child = spawn(binary, args, { stdio: "ignore" });
+  // A binary that cannot run makes spawn() throw (Windows: EFTYPE) or emit
+  // "error" rather than "exit"; both must reach the setup-error path.
+  let child;
+  try {
+    child = spawn(binary, args, { stdio: "ignore" });
+  } catch (error) {
+    fail(2, `could not launch browser ${binary}: ${error.message}`);
+  }
   let exited = false;
   child.once("exit", () => (exited = true));
+  let launchError = null;
+  child.once("error", (error) => (launchError = error));
   const end = Date.now() + 20_000;
   while (Date.now() < end) {
     await sleep(200);
+    if (launchError) fail(2, `could not launch browser ${binary}: ${launchError.message}`);
     try {
       const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
       if (version.webSocketDebuggerUrl) return { ws: version.webSocketDebuggerUrl, child };
