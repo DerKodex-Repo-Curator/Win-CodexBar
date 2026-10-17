@@ -303,7 +303,6 @@ mod tests {
         ));
     }
 
-    #[cfg(windows)]
     #[test]
     fn blank_store_fails_load_but_merges_as_empty() {
         let root = temp_root("blank");
@@ -349,6 +348,7 @@ mod tests {
         ));
     }
 
+    #[cfg(windows)]
     #[test]
     fn persisted_file_is_secure_wrapped() {
         let root = temp_root("secure");

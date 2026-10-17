@@ -308,7 +308,7 @@ fn result_from_admin_usage(
         },
         "Claude API",
         |result| usd_from_lowest_unit(&result.amount),
-        |a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal),
+        |a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)),
     );
     for (idx, (item, cost)) in top_items.into_iter().take(3).enumerate() {
         usage = usage.with_extra_rate_window(

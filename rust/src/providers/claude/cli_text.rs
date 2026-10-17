@@ -138,8 +138,7 @@ pub(super) fn extract_reset_description(text: &str, label: &str) -> Option<Strin
 
 /// Extract a "resets ..." suffix from a short single-line status.
 pub(super) fn extract_inline_reset_description(text: &str) -> Option<String> {
-    let lower = text.to_lowercase();
-    let pos = lower.find("resets")?;
+    let pos = text.to_ascii_lowercase().find("resets")?;
     Some(text[pos..].trim().to_string())
 }
 
