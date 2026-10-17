@@ -32,6 +32,7 @@ const ABOUT_LINKS: ReadonlyArray<{ labelKey: LocaleKey; url: string }> = [
 
 export default function AboutTab({ settings, set, saving }: TabProps) {
   const { t } = useLocale();
+  const ctl = { settings, set, saving };
   const [appInfo, setAppInfo] = useState<AppInfoBridge | null>(null);
   const { updateState, checkNow, download, apply, openRelease } =
     useUpdateState();

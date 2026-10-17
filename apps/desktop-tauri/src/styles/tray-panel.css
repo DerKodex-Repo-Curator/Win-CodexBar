@@ -1,0 +1,632 @@
+/* ── Tray Panel ───────────────────────────────────────────────────── */
+
+/* Hide the panel during the initial resize + reposition dance so the
+   user never sees the window jump around.  Once layout is measured and
+   the window is anchored in its final position, .tray-panel-reveal--ready
+   fades the content in smoothly. */
+:root {
+  --mac-panel-bg: #dedee2;
+}
+html:has(.tray-panel-reveal),
+body:has(.tray-panel-reveal),
+.tray-panel-reveal {
+  background: var(--mac-panel-bg);
+}
+.tray-panel-reveal {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  opacity: 0;
+}
+.tray-panel-reveal--ready {
+  opacity: 1;
+  transition: opacity 80ms ease-out;
+}
+.tray-panel-reveal .menu-surface--tray {
+  flex-grow: 1;
+}
+.tray-panel-reveal .menu-surface--tray .menu-surface__footer {
+  margin-top: auto;
+}
+
+/* spin animation for refresh */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ── Shared surface chrome ────────────────────────────────────────── */
+
+.surface-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.surface-header__title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+
+.surface-header__actions {
+  display: flex;
+  gap: 3px;
+}
+
+.surface-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.surface-action-btn:hover {
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+}
+
+.surface-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.surface-summary {
+  padding: 4px 8px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: var(--surface-elevated);
+  color: var(--text-eyebrow);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.surface-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.surface-empty p {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.surface-empty__hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.surface-empty__spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--accent-muted);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* provider card list */
+.tray-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+}
+
+/* individual card */
+.tray-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.tray-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.tray-card--selected {
+  border-color: var(--accent);
+  background: rgba(10, 132, 255, 0.08);
+}
+
+.tray-card--error {
+  border-color: rgba(255, 108, 108, 0.3);
+}
+
+.tray-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tray-card__name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tray-card__plan {
+  font-size: 0.72rem;
+  color: var(--text-eyebrow);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tray-card__meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.tray-card__err {
+  color: var(--provider-status-error);
+  font-weight: 600;
+}
+
+/* usage bar */
+.usage-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.usage-bar--compact {
+  gap: 6px;
+}
+
+.usage-bar__label {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  min-width: 72px;
+  flex-shrink: 0;
+}
+
+.usage-bar__track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--usage-bar-track);
+  overflow: hidden;
+}
+
+.usage-bar--compact .usage-bar__track {
+  height: 5px;
+}
+
+.usage-bar__fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  background: var(--usage-bar-normal);
+}
+
+.usage-bar__fill[data-level="high"] {
+  background: var(--usage-bar-high);
+}
+.usage-bar__fill[data-level="critical"] {
+  background: var(--usage-bar-critical);
+}
+.usage-bar__fill[data-level="exhausted"] {
+  background: var(--usage-bar-exhausted);
+}
+
+.usage-bar__pct {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 30px;
+  text-align: right;
+}
+
+.tray-btn {
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.tray-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tray-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.tray-btn--primary:hover {
+  background: #0070e0;
+}
+
+/* ── Detail view ──────────────────────────────────────────────────── */
+
+.tray-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tray-detail__back {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.tray-detail__back:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tray-detail__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tray-detail__name {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.tray-detail__plan {
+  font-size: 0.78rem;
+  color: var(--text-eyebrow);
+  font-weight: 600;
+}
+
+.tray-detail__email {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.tray-detail__error {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 108, 108, 0.08);
+  color: var(--provider-status-error);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.tray-detail__windows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tray-detail__window {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tray-detail__window-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.tray-detail__exhausted {
+  color: var(--provider-status-error);
+  font-weight: 600;
+}
+
+.tray-detail__cost {
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tray-detail__cost h3 {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  color: var(--text-eyebrow);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.tray-detail__cost-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 0.82rem;
+}
+
+.tray-detail__cost-row span {
+  color: var(--text-muted);
+}
+
+.tray-detail__cost-row strong {
+  color: var(--text-primary);
+}
+
+.tray-detail__footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tray-detail__source,
+.tray-detail__updated {
+  white-space: nowrap;
+}
+
+/* ── Update Banner ────────────────────────────────────────────────── */
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.update-banner--checking {
+  background: rgba(10, 132, 255, 0.08);
+  color: var(--accent);
+}
+
+.update-banner--available {
+  background: rgba(93, 220, 130, 0.12);
+  color: #6edd97;
+}
+
+.update-banner--downloading {
+  background: rgba(10, 132, 255, 0.08);
+  color: var(--accent);
+}
+
+.update-banner--ready {
+  background: rgba(93, 220, 130, 0.15);
+  color: #6edd97;
+}
+
+.update-banner--error {
+  background: rgba(255, 108, 108, 0.1);
+  color: var(--provider-status-error);
+}
+
+.update-banner__action {
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+  white-space: nowrap;
+}
+
+.update-banner__action:hover {
+  background: rgba(var(--surface-tint-rgb), 0.06);
+}
+
+/* ── Provider detail: org label ─────────────────────────────────────── */
+
+.tray-detail__org {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* ── Provider detail: pace indicator ───────────────────────────────── */
+
+.tray-detail__pace {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tray-detail__pace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tray-detail__pace-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-eyebrow);
+}
+
+.tray-detail__pace-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.tray-detail__pace-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tray-detail__pace-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.tray-detail__pace-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--usage-bar-normal);
+  transition: width 0.3s ease;
+}
+
+.tray-detail__pace-fill[data-pace="slow"] {
+  background: var(--pace-slow-fg);
+}
+.tray-detail__pace-fill[data-pace="steady"] {
+  background: var(--pace-steady-fg);
+}
+.tray-detail__pace-fill[data-pace="racing"] {
+  background: var(--pace-racing-fg);
+}
+.tray-detail__pace-fill[data-pace="burning"] {
+  background: var(--pace-burning-fg);
+}
+
+.tray-detail__pace-fill--expected {
+  background: var(--pace-track-expected-fg) !important;
+}
+
+.tray-detail__pace-label[data-pace="slow"] {
+  color: var(--pace-slow-fg);
+}
+.tray-detail__pace-label[data-pace="steady"] {
+  color: var(--pace-steady-fg);
+}
+.tray-detail__pace-label[data-pace="racing"] {
+  color: var(--pace-racing-fg);
+}
+.tray-detail__pace-label[data-pace="burning"] {
+  color: var(--pace-burning-fg);
+}
+
+/* ── Tray card: pace badge pill ──────────────────────────── */
+
+.tray-pace-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.tray-pace-badge[data-pace="slow"] {
+  background: var(--pace-slow-bg);
+  color: var(--pace-slow-fg);
+}
+.tray-pace-badge[data-pace="steady"] {
+  background: var(--pace-steady-bg);
+  color: var(--pace-steady-fg);
+}
+.tray-pace-badge[data-pace="racing"] {
+  background: var(--pace-racing-bg);
+  color: var(--pace-racing-fg);
+}
+.tray-pace-badge[data-pace="burning"] {
+  background: var(--pace-burning-bg);
+  color: var(--pace-burning-fg);
+}
+
+.tray-pace-badge__delta {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.tray-card__pace-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tray-card__pace-row .usage-bar {
+  flex: 1;
+  min-width: 0;
+}
+
+.tray-card__reset--countdown {
+  font-variant-numeric: tabular-nums;
+  color: var(--provider-row-text-secondary);
+}
+
+.tray-detail__pace-eta {
+  font-size: 0.78rem;
+  color: #fb923c;
+  font-weight: 500;
+}
+
+.tray-detail__pace-ok {
+  font-size: 0.78rem;
+  color: #06d6a0;
+  font-weight: 500;
+}
+
+/* ── Provider detail: charts section ───────────────────────────────── */
+
+.tray-detail__charts {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
