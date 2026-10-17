@@ -250,7 +250,7 @@ The proxy password is stored in `settings.json`, which is DPAPI-wrapped. Advance
 - Account lists in the tray menu and in Settings show "Account 1", "Account 2" and so on. For Codex this covers every account, ambient and managed. The number comes from the sorted account id, not the list position.
 - Settings > Providers hides the email and organization, and shows an OpenAI API project id as "Project: ••••".
 - Usage & Spend and cost history show Codex project names as "Workspace", drop session titles and clear paths.
-- Hook payloads never get the account identity.
+- Hook events that the desktop app sends leave out the account identity. `codexbar hooks watch` does not apply this setting yet.
 
 ### Hooks
 

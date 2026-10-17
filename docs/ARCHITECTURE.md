@@ -58,7 +58,7 @@ The float bar is an optional always-on-top strip. `floatbar/` owns it. Its windo
 
 1. `codexbar::core::instantiate_provider` in `rust/src/core/provider_factory.rs` builds each provider. It is the only provider factory.
 2. `commands/providers.rs` in the shell calls `Provider::fetch_usage`. It runs at most 8 fetches at once.
-3. Each fetch has a timeout: 75 seconds for Claude, Codex and Copilot, and 35 seconds for the others. LiteLLM gets 40 seconds when optional details are on. A longer web timeout in settings raises these, up to 65 seconds.
+3. Each fetch has a timeout: 75 seconds for Claude, Codex and Copilot, and 35 seconds for the others. LiteLLM gets 40 seconds when optional details are on. A longer web timeout in settings (plus 5 seconds) can raise the 35-second and 40-second timeouts, but never above 65 seconds. It doesn't change the 75-second timeout for Claude, Codex and Copilot.
 4. Results go into `AppState.provider_cache`.
 5. The shell sends `provider-updated` for each provider and `refresh-complete` at the end. The React hook `useProviders` listens and redraws.
 
@@ -68,7 +68,7 @@ A full provider refresh also starts a status poll (`status_poller.rs`) while `st
 
 ### Settings
 
-1. `Settings::load` reads `%APPDATA%\CodexBar\settings.json`. Other stores, such as `api_keys.json`, `manual_cookies.json` and `hooks.json`, sit in the same folder. `settings.json` and the secret stores are written through `secure_file`, which wraps them with DPAPI on Windows. `hooks.json` is plain JSON. See [CONFIGURATION.md](./CONFIGURATION.md#files-and-where-they-live).
+1. The desktop shell's `Settings::load` reads `%APPDATA%\CodexBar\settings.json`. Other stores, such as `api_keys.json`, `manual_cookies.json` and `hooks.json`, sit in the same folder. `settings.json`, `api_keys.json` and `manual_cookies.json` are written through `secure_file`, which wraps them with DPAPI on Windows. `hooks.json` is plain JSON and always stays at its default path. The CLI's `CODEXBAR_CONFIG` variable moves the settings, API key, manual cookie and token account files, but not `hooks.json`. See [CONFIGURATION.md](./CONFIGURATION.md#files-and-where-they-live).
 2. The frontend calls `updateSettings` with a patch.
 3. The shell saves the file and sends `settings-changed`. In the page, the DOM event `codexbar:settings-updated` tells other parts of the UI to reload. The float bar has its own config events.
 

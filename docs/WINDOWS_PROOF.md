@@ -69,6 +69,8 @@ A file the app can't read or parse logs a warning, and the app starts without th
 
 Drive the app without taking the user's focus or keyboard. Don't use cua-driver's `bring_to_front`, foreground mode, `hotkey` or `type_text`.
 
+The one exception is the global-shortcut checks in the [checklist](#checklist) (`runtime.shortcut-capture-records` and `runtime.shortcut-toggles-panel`). They test a system-wide key binding, so they need a real key press on a Windows desktop. Run them by hand, and note in the PR that they were a manual check. Don't use `hotkey` or `type_text` for them.
+
 ### CDP for webview controls
 
 Set a remote debugging port before you launch the app. Use one port for each app you run in parallel.
