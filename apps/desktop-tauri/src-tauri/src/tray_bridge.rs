@@ -134,7 +134,17 @@ fn build_native_tray_menu(
         },
         settings.ui_language,
     );
-    crate::tray_accounts::prepend_account_menus(&mut spec, &settings);
+    // Callers release the AppState lock before building the tray menu.
+    let claude_usage = app
+        .try_state::<Mutex<AppState>>()
+        .and_then(|state| {
+            state
+                .lock()
+                .ok()
+                .map(|guard| guard.claude_account_usage.clone())
+        })
+        .unwrap_or_default();
+    crate::tray_accounts::prepend_account_menus(&mut spec, &settings, &claude_usage);
     let entries = spec
         .iter()
         .map(|entry| build_native_menu_entry(app, entry))
