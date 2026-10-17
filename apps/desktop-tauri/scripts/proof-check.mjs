@@ -221,6 +221,10 @@ class Cdp {
   }
 
   send(method, params = {}, sessionId) {
+    // A closed socket drops sends silently; fail now rather than at the timeout.
+    if (this.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error(`CDP ${method}: browser connection closed`));
+    }
     const id = ++this.nextId;
     this.socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
     return new Promise((done, reject) => {

@@ -231,6 +231,13 @@ pnpm proof:check -- --cdp <ws-url> --url <base>  # remote browser; <base> must b
 Without `--url`, the runner serves the proof build on `127.0.0.1`, which a
 browser on another host cannot reach.
 
+With `--cdp`, the runner drives whatever browser it is given, and its isolated
+`.proof/browser-profile/` applies only to browsers it launches itself. Point
+`--cdp` at a browser started with its own empty `--user-data-dir`, never one
+with real logins. CDP has no authentication, so keep a remote browser's
+debugging port bound to loopback and reach it through an SSH tunnel or an
+authenticated bridge, not an open port.
+
 Screenshots go to `apps/desktop-tauri/.proof/screens/` (git-ignored). The
 browser runs on its own profile in `.proof/browser-profile/`, never a user
 profile. Exit code `0` means every scenario passed, `1` means one failed, and
