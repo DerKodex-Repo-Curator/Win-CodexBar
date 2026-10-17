@@ -176,6 +176,15 @@ impl CursorApi {
             .billing_cycle_end
             .as_ref()
             .and_then(|s| parse_iso_date(s));
+        // Upstream `CursorStatusProbe`: plan lanes carry the billing cycle's
+        // length so reset-window pace scores against the real cycle.
+        let cycle_minutes = billing_cycle_window_minutes(
+            summary
+                .billing_cycle_start
+                .as_deref()
+                .and_then(parse_iso_date),
+            billing_end,
+        );
 
         let (percent_used, secondary, model_specific, cost_snapshot) =
             if let Some(team_budget) = team_budget {
@@ -208,11 +217,11 @@ impl CursorApi {
                     };
 
                     let secondary = plan.auto_percent_used.map(|v| {
-                        RateWindow::with_details(clamp_percent(v), None, billing_end, None)
+                        RateWindow::with_details(clamp_percent(v), cycle_minutes, billing_end, None)
                     });
 
                     let model_specific = plan.api_percent_used.map(|v| {
-                        RateWindow::with_details(clamp_percent(v), None, billing_end, None)
+                        RateWindow::with_details(clamp_percent(v), cycle_minutes, billing_end, None)
                     });
 
                     let cost =
@@ -246,7 +255,7 @@ impl CursorApi {
                 (0.0, None, None, None)
             };
 
-        let primary = RateWindow::with_details(percent_used, None, billing_end, None);
+        let primary = RateWindow::with_details(percent_used, cycle_minutes, billing_end, None);
 
         let plan_type = summary
             .membership_type
@@ -527,6 +536,20 @@ impl UserInfo {
 }
 
 // --- Helper functions ---
+
+/// Billing cycle length in whole minutes (rounded), or `None` when either end
+/// is missing or the cycle is empty or reversed.
+fn billing_cycle_window_minutes(
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
+) -> Option<u32> {
+    let seconds = (end? - start?).num_seconds();
+    if seconds <= 0 {
+        return None;
+    }
+    let minutes = (seconds + 30) / 60;
+    u32::try_from(minutes).ok().filter(|m| *m > 0)
+}
 
 fn parse_iso_date(s: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(s)

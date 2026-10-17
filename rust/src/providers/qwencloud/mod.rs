@@ -1,12 +1,16 @@
-//! Qwen Cloud personal token-plan provider (upstream 0.46.0).
+//! Qwen Cloud personal and team token-plan provider (upstream 0.46.0; team 0.74.0+).
 //!
 //! Cookie-authenticated OneConsole gateway:
 //! `POST https://cs-data.qwencloud.com/data/api.json?...`
-//! with `IntlBroadScopeAspnGateway` / `sfm_bailian`.
+//! with `IntlBroadScopeAspnGateway` / `sfm_bailian` for individual.
+//! Team (see [`team`]) runs first and falls back to Individual.
 
 mod fields;
 #[cfg(test)]
 mod monthly_tests;
+mod team;
+#[cfg(test)]
+mod team_tests;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -101,7 +105,10 @@ impl QwenCloudProvider {
         Self
     }
 
-    async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
+    async fn fetch_via_web(
+        &self,
+        ctx: &FetchContext,
+    ) -> Result<ProviderFetchResult, ProviderError> {
         let cookie_header = Self::resolve_cookie_header(ctx)?;
         let client = crate::core::credentialed_http_client_builder()
             .timeout(std::time::Duration::from_secs(ctx.web_timeout.max(1)))
@@ -109,23 +116,75 @@ impl QwenCloudProvider {
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        let sec_token = Self::resolve_sec_token(&client, &cookie_header, ctx)
+        let team_timeout =
+            team::REQUEST_TIMEOUT.min(std::time::Duration::from_secs(ctx.web_timeout.max(1)));
+        let team_error = match team::fetch(
+            &client,
+            team::BASE_URL,
+            &cookie_header,
+            team_timeout,
+            Utc::now().timestamp_millis(),
+        )
+        .await
+        {
+            Ok(Some(team)) => return Ok(team::to_result(&team)),
+            Ok(None) => None,
+            Err(error) => Some(error),
+        };
+
+        let individual = self
+            .fetch_individual(&client, &cookie_header, ctx)
+            .await
+            .map(|usage| ProviderFetchResult::new(usage, "web"));
+        team::choose_result(team_error, individual)
+    }
+
+    async fn fetch_individual(
+        &self,
+        client: &reqwest::Client,
+        cookie_header: &str,
+        ctx: &FetchContext,
+    ) -> Result<UsageSnapshot, ProviderError> {
+        let sec_token = Self::resolve_sec_token(client, cookie_header, ctx)
             .await
             .ok_or(ProviderError::AuthRequired)?;
 
-        let (client, sec_token, cookie_header) =
-            (&client, sec_token.as_str(), cookie_header.as_str());
-        let post = move |api: &'static str, data| {
-            Self::post_api(client, api, data, sec_token, cookie_header, ctx)
-        };
-        let usage_body = post(USAGE_API, Map::new()).await?;
-        let mut subscription_params = Map::new();
-        subscription_params.insert(
-            "commodityCode".into(),
-            Value::String(PRODUCT_CODE.to_string()),
-        );
-        let subscription_body = post(SUBSCRIPTION_API, subscription_params).await.ok();
-        let quota_config_body = post(QUOTA_CONFIG_API, Map::new()).await.ok();
+        let usage_body = Self::post_api(
+            client,
+            USAGE_API,
+            Map::new(),
+            &sec_token,
+            cookie_header,
+            ctx,
+        )
+        .await?;
+
+        let subscription_body = Self::post_api_optional(
+            client,
+            SUBSCRIPTION_API,
+            {
+                let mut data = Map::new();
+                data.insert(
+                    "commodityCode".into(),
+                    Value::String(PRODUCT_CODE.to_string()),
+                );
+                data
+            },
+            &sec_token,
+            cookie_header,
+            ctx,
+        )
+        .await;
+
+        let quota_config_body = Self::post_api_optional(
+            client,
+            QUOTA_CONFIG_API,
+            Map::new(),
+            &sec_token,
+            cookie_header,
+            ctx,
+        )
+        .await;
 
         let snapshot = Self::parse(
             &usage_body,
@@ -269,6 +328,19 @@ impl QwenCloudProvider {
         Ok(body.to_vec())
     }
 
+    async fn post_api_optional(
+        client: &reqwest::Client,
+        api: &str,
+        data_parameters: Map<String, Value>,
+        sec_token: &str,
+        cookie_header: &str,
+        ctx: &FetchContext,
+    ) -> Option<Vec<u8>> {
+        Self::post_api(client, api, data_parameters, sec_token, cookie_header, ctx)
+            .await
+            .ok()
+    }
+
     fn parse(
         usage_data: &[u8],
         subscription_data: Option<&[u8]>,
@@ -391,10 +463,7 @@ impl Provider for QwenCloudProvider {
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
-            SourceMode::Auto | SourceMode::Web => {
-                let usage = self.fetch_via_web(ctx).await?;
-                Ok(ProviderFetchResult::new(usage, "web"))
-            }
+            SourceMode::Auto | SourceMode::Web => self.fetch_via_web(ctx).await,
             SourceMode::Cli | SourceMode::OAuth => {
                 Err(ProviderError::UnsupportedSource(ctx.source_mode))
             }
@@ -403,6 +472,14 @@ impl Provider for QwenCloudProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
+    }
+
+    fn error_state_kind(&self, error: &ProviderError) -> crate::core::ProviderStateKind {
+        if team::is_auth_expired(error) {
+            crate::core::ProviderStateKind::ExpiredSession
+        } else {
+            error.state_kind()
+        }
     }
 }
 

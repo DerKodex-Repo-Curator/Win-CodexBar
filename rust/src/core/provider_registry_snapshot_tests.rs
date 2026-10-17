@@ -56,6 +56,7 @@ fn registry_matches_snapshot() {
             "/src/core/provider_registry_snapshot.txt"
         );
         std::fs::write(path, &actual).unwrap();
+        return;
     }
     assert_eq!(actual, REGISTRY_SNAPSHOT.replace('\r', ""));
 }

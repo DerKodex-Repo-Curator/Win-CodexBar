@@ -357,3 +357,54 @@ fn verified_team_budget_replaces_summary_plan_and_keeps_zero_summary_fallback() 
         Some(20.0)
     );
 }
+
+/// Upstream `CursorSandUsageStatus.windowMinutes(start:end:)`: the plan
+/// bars carry the billing-cycle length so reset-window pace can score them.
+#[test]
+fn plan_lanes_carry_the_billing_cycle_length() {
+    let json = r#"{
+        "billingCycleStart": "2026-02-01T00:00:00Z",
+        "billingCycleEnd": "2026-03-01T00:00:00Z",
+        "membershipType": "pro",
+        "individualUsage": {
+            "plan": {
+                "used": 1500,
+                "limit": 5000,
+                "totalPercentUsed": 30.0,
+                "autoPercentUsed": 20.0,
+                "apiPercentUsed": 10.0
+            }
+        }
+    }"#;
+    let result = api().build_result_with_team_budget(parse_summary(json), None, None);
+    assert_eq!(result.primary.window_minutes, Some(40_320));
+    assert_eq!(result.secondary.expect("auto").window_minutes, Some(40_320));
+    assert_eq!(
+        result.model_specific.expect("api").window_minutes,
+        Some(40_320)
+    );
+}
+
+#[test]
+fn billing_cycle_length_rounds_to_the_nearest_minute_and_needs_both_ends() {
+    let start = parse_iso_date("2026-02-01T00:00:00Z");
+    let end = parse_iso_date("2026-03-01T00:00:31Z");
+    assert_eq!(billing_cycle_window_minutes(start, end), Some(40_321));
+    let end = parse_iso_date("2026-03-01T00:00:29Z");
+    assert_eq!(billing_cycle_window_minutes(start, end), Some(40_320));
+    assert_eq!(billing_cycle_window_minutes(None, end), None);
+    assert_eq!(billing_cycle_window_minutes(start, None), None);
+    // A cycle that ends before it starts has no length.
+    assert_eq!(billing_cycle_window_minutes(end, start), None);
+}
+
+#[test]
+fn plan_lanes_without_a_cycle_start_have_no_length() {
+    let json = r#"{
+        "billingCycleEnd": "2026-03-01T00:00:00Z",
+        "membershipType": "pro",
+        "individualUsage": { "plan": { "used": 1500, "limit": 5000 } }
+    }"#;
+    let result = api().build_result_with_team_budget(parse_summary(json), None, None);
+    assert_eq!(result.primary.window_minutes, None);
+}
