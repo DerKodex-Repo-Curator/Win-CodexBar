@@ -176,6 +176,8 @@ fn public_claude_daily_token_dispatch_reports_incomplete_fixture_scans() {
         .args(["--exact", test_name, "--nocapture", "--test-threads=1"])
         .env(CHILD_MARKER, "1")
         .env("CLAUDE_CONFIG_DIR", config_dir.path())
+        // Every home-relative root (claude-swap, Pi, OMP) resolves here.
+        .env("CODEXBAR_TEST_HOME", config_dir.path())
         .output()
         .expect("spawn isolated exact-test child");
     assert!(
@@ -399,10 +401,7 @@ fn daily_history_dedups_across_files_and_buckets_by_local_day() {
     .unwrap();
 
     let day_key = |ts: &DateTime<Utc>| {
-        ts.with_timezone(&Local)
-            .date_naive()
-            .format("%Y-%m-%d")
-            .to_string()
+        super::super::today::day_key(crate::cost_reporting_period::cost_bucket_zone().date(*ts))
     };
     let mut daily_costs = HashMap::new();
     daily_costs.insert(day_key(&day_one), None);
@@ -449,11 +448,9 @@ fn claude_daily_cost_record(timestamp: DateTime<Utc>, cost: Option<f64>) -> Clau
 #[test]
 fn unknown_claude_cost_date_cannot_be_restored_by_later_priced_record() {
     let timestamp = Utc::now();
-    let day = timestamp
-        .with_timezone(&Local)
-        .date_naive()
-        .format("%Y-%m-%d")
-        .to_string();
+    let day = super::super::today::day_key(
+        crate::cost_reporting_period::cost_bucket_zone().date(timestamp),
+    );
     let mut daily_costs = HashMap::from([(day.clone(), None)]);
     let mut unknown_cost_dates = HashSet::new();
 

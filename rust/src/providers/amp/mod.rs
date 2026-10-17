@@ -19,6 +19,20 @@ use crate::core::{
     RateWindow, SourceMode, UsageSnapshot,
 };
 
+/// Upstream Amp `ProviderPaceCapability.resetWindowPace`: subscription
+/// windows with a known length and a "renews in ..." reset.
+pub(crate) fn reset_window_pace_matches(window: &RateWindow, _now: chrono::DateTime<Utc>) -> bool {
+    display::window_allows_pace(window)
+}
+
+/// Reset-window pace (upstream `AmpProviderDescriptor.pace`, v0.70.0):
+/// renewing subscription windows, see [`reset_window_pace_matches`]. There is
+/// no inferred monthly duration: the window already carries its length.
+pub(crate) const PACE_CAPABILITY: crate::core::ProviderPaceCapability =
+    crate::core::ProviderPaceCapability::reset_window(crate::core::PaceWindowRule::Custom(
+        reset_window_pace_matches,
+    ));
+
 /// Amp provider (Sourcegraph)
 pub struct AmpProvider {
     metadata: ProviderMetadata,
@@ -30,14 +44,14 @@ impl AmpProvider {
             metadata: ProviderMetadata {
                 id: ProviderId::Amp,
                 display_name: "Amp",
-                session_label: "Usage",
-                weekly_label: "Monthly",
+                session_label: "Amp Free",
+                weekly_label: "Balance",
                 supports_opus: false,
                 supports_credits: true,
                 default_enabled: false,
                 is_primary: false,
                 dashboard_url: Some("https://ampcode.com/settings/usage"),
-                status_page_url: Some("https://sourcegraphstatus.com"),
+                status_page_url: None,
                 tertiary_label_key: None,
             },
         }
@@ -367,6 +381,63 @@ Subscription Megawatt: 42% other usage and 88% orb usage remaining - resets upon
                 .or(Some(AMP_MONTHLY_WINDOW_MINUTES))
         );
         assert_eq!(snapshot.login_method.as_deref(), Some("Megawatt"));
+        // Upstream primaryLabel: "Other usage" when there is an orb lane.
+        assert_eq!(snapshot.primary_label.as_deref(), Some("Other usage"));
+        assert_eq!(snapshot.secondary_label.as_deref(), Some("Orb usage"));
+    }
+
+    /// Upstream v0.70.0 `AmpUsageSnapshot.swift:121-131` sizes a renewing
+    /// window by its billing period, falling back to
+    /// `calendarMonthResetWindow.resolvedResetWindowForPace` ("Preserve legacy
+    /// calendar-month pacing"). It is the real month length, not a flat 30
+    /// days, so a 28-day and a 31-day cycle stay distinct.
+    #[test]
+    fn legacy_renewal_window_uses_the_real_calendar_month_length() {
+        let cases = [
+            // Renews 2026-03-01 12:00: cycle 2026-02-01..03-01 = 28 days.
+            (
+                Utc.with_ymd_and_hms(2026, 2, 20, 12, 0, 0).unwrap(),
+                9,
+                40_320,
+            ),
+            // Renews 2026-08-01 12:00: cycle 2026-07-01..08-01 = 31 days.
+            (
+                Utc.with_ymd_and_hms(2026, 7, 25, 12, 0, 0).unwrap(),
+                7,
+                44_640,
+            ),
+        ];
+        for (now, days, expected) in cases {
+            let text = format!(
+                "Subscription Megawatt: 42% other usage and 88% orb usage remaining - resets upon renewal in {days} days"
+            );
+            let snapshot = usage_snapshot_from_amp_display_text(&text, now).expect("snapshot");
+            assert_eq!(snapshot.primary.window_minutes, Some(expected));
+            assert_eq!(
+                snapshot.secondary.as_ref().and_then(|w| w.window_minutes),
+                Some(expected)
+            );
+            assert!(PACE_CAPABILITY.supports_reset_window_pace(&snapshot.primary, now));
+            assert_eq!(
+                PACE_CAPABILITY
+                    .resolved_reset_window_for_pace(&snapshot.primary)
+                    .window_minutes,
+                Some(expected)
+            );
+            // A calendar-month provider's 30-day sentinel resolves to the
+            // same real length for the same reset.
+            assert_eq!(
+                crate::core::ProviderPaceCapability::CALENDAR_MONTH_RESET_WINDOW
+                    .resolved_reset_window_for_pace(&RateWindow::with_details(
+                        10.0,
+                        Some(crate::core::MONTHLY_WINDOW_SENTINEL_MINUTES),
+                        snapshot.primary.resets_at,
+                        None,
+                    ))
+                    .window_minutes,
+                Some(expected)
+            );
+        }
     }
 
     #[test]
@@ -511,7 +582,7 @@ period 2026-02-30 to 2026-03-30, resets upon renewal in 27 days";
         assert!(snapshot.primary.resets_at.is_none());
         assert_eq!(
             snapshot.primary.reset_description.as_deref(),
-            Some("renews in 27 days · $18.00/$20.00 remaining")
+            Some("renews in 27 days")
         );
     }
 
@@ -541,5 +612,141 @@ period 2026-09-13 to 2026-10-13, resets upon renewal in 999999999999999999999999
         );
         let snapshot = usage_snapshot_from_amp_display_text(text, now).expect("snapshot");
         assert_eq!(snapshot.primary.used_percent, 50.0);
+    }
+}
+
+/// Upstream 0.70 `AmpProviderDescriptor` / `AmpUsageSnapshot` parity: labels,
+/// status page, pace rule and the "Monthly allowances" rows.
+#[cfg(test)]
+mod mac_parity_tests {
+    use super::display::{parse_amp_display_text, window_allows_pace};
+    use super::*;
+    use chrono::TimeZone;
+
+    const TIER_TEXT: &str = "Amp Megawatt Tier: agent usage $18.57 of $20 remaining (93%), \
+orb usage 732.8h of 750h a1.small orb hours remaining (98%) - \
+period 2026-09-13 to 2026-10-13, resets upon renewal in 27 days";
+
+    fn now() -> chrono::DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 9, 16, 12, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn metadata_matches_upstream_descriptor() {
+        let provider = AmpProvider::new();
+        let metadata = provider.metadata();
+        assert_eq!(metadata.session_label, "Amp Free");
+        assert_eq!(metadata.weekly_label, "Balance");
+        assert_eq!(metadata.status_page_url, None);
+    }
+
+    #[test]
+    fn free_tier_has_no_pace() {
+        // The parity pack's dollar line (hourly refill) and the daily percent line.
+        for text in [
+            "Amp Free: $12.50 / $20 remaining (replenishes +$0.42 / hour)",
+            "Amp Free: 72% remaining (resets daily)",
+        ] {
+            let result = parse_amp_display_text(text, now())
+                .expect("free tier")
+                .into_fetch_result("cli");
+            assert!(!result.pace_authoritative, "{text}");
+        }
+    }
+
+    #[test]
+    fn subscription_windows_keep_pace() {
+        let legacy = "Subscription Megawatt: 42% other usage and 88% orb usage remaining - resets upon renewal in 12 days";
+        for text in [TIER_TEXT, legacy] {
+            let result = parse_amp_display_text(text, now())
+                .expect("subscription")
+                .into_fetch_result("cli");
+            assert!(result.pace_authoritative, "{text}");
+        }
+        // A subscription with a free allowance still paces on the subscription.
+        let both = format!("Amp Free: 72% remaining (resets daily)\n{TIER_TEXT}");
+        let result = parse_amp_display_text(&both, now())
+            .expect("both")
+            .into_fetch_result("cli");
+        assert!(result.pace_authoritative);
+    }
+
+    #[test]
+    fn pace_rule_needs_window_length_and_renewal_text() {
+        let window = |minutes: Option<u32>, text: Option<&str>| {
+            RateWindow::with_details(10.0, minutes, None, text.map(str::to_string))
+        };
+        assert!(window_allows_pace(&window(
+            Some(43_200),
+            Some("renews in 27 days")
+        )));
+        assert!(!window_allows_pace(&window(
+            None,
+            Some("renews in 27 days")
+        )));
+        assert!(!window_allows_pace(&window(
+            Some(1_440),
+            Some("resets daily")
+        )));
+        assert!(!window_allows_pace(&window(Some(2_880), None)));
+    }
+
+    #[test]
+    fn tier_reports_monthly_allowance_rows() {
+        let parsed = parse_amp_display_text(TIER_TEXT, now()).expect("tier");
+        let rows: Vec<_> = parsed
+            .details
+            .iter()
+            .map(|row| {
+                (
+                    row.section_title().map(str::to_string),
+                    row.title().to_string(),
+                    row.value().to_string(),
+                    row.secondary_value().map(str::to_string),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    Some("Monthly allowances".to_string()),
+                    "Agent".to_string(),
+                    "$18.57".to_string(),
+                    None,
+                ),
+                (
+                    Some("Monthly allowances".to_string()),
+                    "Orb".to_string(),
+                    "732h".to_string(),
+                    Some("a1.small-equivalent hours".to_string()),
+                ),
+            ]
+        );
+        assert_eq!(
+            parsed.usage.primary.reset_description.as_deref(),
+            Some("renews in 27 days")
+        );
+    }
+
+    #[test]
+    fn orb_under_one_hour_reads_less_than_one() {
+        let text = "Amp Example Tier: agent usage $3 of $20 remaining, \
+orb usage 0.4h of 750h a1.small orb hours remaining - \
+period 2026-09-13 to 2026-10-13, resets upon renewal in 27 days";
+        let parsed = parse_amp_display_text(text, now()).expect("tier");
+        let orb = parsed
+            .details
+            .iter()
+            .find(|row| row.title() == "Orb")
+            .expect("orb row");
+        assert_eq!(orb.value(), "< 1h");
+    }
+
+    #[test]
+    fn legacy_subscription_has_no_allowance_rows() {
+        let text = "Subscription Megawatt: 42% other usage and 88% orb usage remaining - resets upon renewal in 12 days";
+        let parsed = parse_amp_display_text(text, now()).expect("legacy");
+        assert!(parsed.details.is_empty());
     }
 }

@@ -22,6 +22,9 @@ mod claude_swap;
 #[cfg(test)]
 #[path = "tests/claude_today.rs"]
 mod claude_today;
+
+#[path = "tests/claude_hourly.rs"]
+mod claude_hourly;
 #[cfg(test)]
 #[path = "tests/claude_walk.rs"]
 mod claude_walk;
@@ -53,6 +56,9 @@ mod archived;
 
 #[path = "tests/claude_rates.rs"]
 mod claude_rates;
+#[cfg(test)]
+#[path = "tests/codex_auto_review.rs"]
+mod codex_auto_review;
 
 #[path = "tests/codex_usage.rs"]
 mod codex_usage;

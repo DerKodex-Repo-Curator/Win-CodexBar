@@ -53,6 +53,7 @@ fn session(
         totals: UsageTotals::from_parts(1, 0, 0),
         cost_estimate: CostEstimate::default(),
         top_model: None,
+        turn_performance: None,
     }
 }
 

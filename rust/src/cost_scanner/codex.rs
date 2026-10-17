@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::codex_included_pricing::mark_included_records;
 use crate::core::{
     CodexForkAccountingState, CodexParseMode, CodexSessionLineage, CodexSessionMetadata,
 };
@@ -486,6 +487,9 @@ impl CostScanner {
                 stats.codex_read_receipt.metadata_reads.saturating_add(1);
             JsonlScanner::read_codex_session_metadata(path).unwrap_or_default()
         };
+        // Upstream #4452: a ChatGPT-created rollout's Auto-review requests are
+        // keyed apart so their day aggregates price at $0 (see codex_included_pricing).
+        let has_creator_account = session_metadata.has_creator_account;
         // Cached lineage metadata belongs to a physical file, not merely a
         // path/size/mtime tuple. Missing identity evidence fails closed.
         let cached_identity_matches = cached.as_ref().is_some_and(identity_matches_cached);
@@ -655,7 +659,7 @@ impl CostScanner {
                 && JsonlScanner::is_line_boundary_offset(path, start_offset)
             {
                 let resumable_target_size = codex_resumable_scan_target_size(size, entry);
-                let parse_result = match JsonlScanner::parse_codex(
+                let mut parse_result = match JsonlScanner::parse_codex(
                     path,
                     range,
                     CodexParseMode::Standard {
@@ -675,6 +679,7 @@ impl CostScanner {
                 stats.token_timestamp_comparisons = stats
                     .token_timestamp_comparisons
                     .saturating_add(parse_result.token_timestamp_comparisons);
+                mark_included_records(&mut parse_result.records, has_creator_account);
                 let mut days = entry.days.clone();
                 merge_codex_records_into_days(&mut days, &parse_result.records);
                 if codex_forked_from_id.is_some() {
@@ -788,7 +793,7 @@ impl CostScanner {
                 unreachable!("unresolved forks return before parsing")
             }
         };
-        let parse_result = match JsonlScanner::parse_codex(
+        let mut parse_result = match JsonlScanner::parse_codex(
             path,
             range,
             parse_mode,
@@ -802,6 +807,7 @@ impl CostScanner {
         stats.token_timestamp_comparisons = stats
             .token_timestamp_comparisons
             .saturating_add(parse_result.token_timestamp_comparisons);
+        mark_included_records(&mut parse_result.records, has_creator_account);
         if parse_result.fork_baseline_ambiguous
             || (accounting_mode.infers_subagent_baseline()
                 && !parse_result.fork_baseline_locally_resolved)

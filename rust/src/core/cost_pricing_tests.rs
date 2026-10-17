@@ -1,81 +1,6 @@
 use super::codex_routed_pricing;
 use super::*;
 
-impl CostUsagePricing {
-    /// Get the display label for a Codex model (e.g. "Research Preview")
-    fn codex_display_label(model: &str) -> Option<&'static str> {
-        let key = Self::normalize_codex_model(model);
-        CODEX_PRICING
-            .get(key.as_str())
-            .and_then(|p| p.display_label)
-    }
-
-    /// Format model name for display (e.g., "claude-3.5-sonnet" → "Sonnet 3.5")
-    fn format_model_name(model: &str) -> String {
-        let lower = model.to_lowercase();
-
-        // GPT models: format as "GPT-{version}[ Mini| Nano]"
-        if lower.contains("gpt-") {
-            let version = regex_lite::Regex::new(r"gpt-(\d+(?:\.\d+)?)")
-                .ok()
-                .and_then(|re| re.captures(&lower))
-                .and_then(|c| c.get(1))
-                .map(|m| m.as_str().to_string());
-
-            let suffix = if lower.contains("nano") {
-                " Nano"
-            } else if lower.contains("mini") {
-                " Mini"
-            } else {
-                ""
-            };
-
-            return match version {
-                Some(v) => format!("GPT-{}{}", v, suffix),
-                None => model.to_string(),
-            };
-        }
-
-        // Claude models: extract version and family
-        let version = regex_lite::Regex::new(r"(\d+(?:\.\d+)?)")
-            .ok()
-            .and_then(|re| re.find(&lower))
-            .map(|m| m.as_str().to_string());
-
-        let family = if lower.contains("opus") {
-            "Opus"
-        } else if lower.contains("sonnet") {
-            "Sonnet"
-        } else if lower.contains("haiku") {
-            "Haiku"
-        } else {
-            return model.to_string();
-        };
-
-        match version {
-            Some(v) => format!("{} {}", family, v),
-            None => family.to_string(),
-        }
-    }
-
-    fn codex_cost_usd_with_pricing_snapshot(
-        model: &str,
-        input_tokens: u64,
-        cached_input_tokens: u64,
-        output_tokens: u64,
-        pricing_snapshot: Option<&models_dev_pricing::ModelsDevPricingSnapshot>,
-    ) -> Option<f64> {
-        Self::codex_cost_usd_with_cache_write_and_pricing_snapshot(
-            model,
-            input_tokens,
-            cached_input_tokens,
-            0,
-            output_tokens,
-            pricing_snapshot,
-        )
-    }
-}
-
 #[test]
 fn normalizes_codex_model_ids() {
     let unattributed = CostUsagePricing::CODEX_UNATTRIBUTED_MODEL;
@@ -183,18 +108,6 @@ fn test_claude_input_cost_per_token() {
 }
 
 #[test]
-fn formats_model_names() {
-    for (model, expected) in [
-        ("claude-3.5-sonnet", "Sonnet 3.5"),
-        ("claude-opus-4", "Opus 4"),
-        ("gpt-5", "GPT-5"),
-        ("gpt-5.4-mini", "GPT-5.4 Mini"),
-    ] {
-        assert_eq!(CostUsagePricing::format_model_name(model), expected);
-    }
-}
-
-#[test]
 fn gpt_reserve_alias_uses_luna_pricing() {
     let luna =
         CostUsagePricing::codex_cost_usd("gpt-5.6-luna", 1_000, 400, 1_000).expect("Luna pricing");
@@ -232,15 +145,6 @@ fn test_gpt56_context_threshold_is_exclusive() {
         let cost = CostUsagePricing::codex_cost_usd(model, 272_000, 272_000, 0);
         assert!((cost.unwrap() - expected).abs() < 1e-10, "{model}");
     }
-}
-
-#[test]
-fn test_codex_display_label() {
-    assert_eq!(
-        CostUsagePricing::codex_display_label("gpt-5.3-codex-spark"),
-        Some("Research Preview")
-    );
-    assert_eq!(CostUsagePricing::codex_display_label("gpt-5.4"), None);
 }
 
 #[test]
@@ -367,9 +271,10 @@ fn native_codex_nous_prefix_stays_unpriced() {
     .expect("catalog");
     assert!(codex_routed_pricing::codex_routed_provider("nous/z-ai/glm-5").is_none());
     assert!(
-        CostUsagePricing::codex_cost_usd_with_pricing_snapshot(
+        CostUsagePricing::codex_cost_usd_with_cache_write_and_pricing_snapshot(
             "nous/z-ai/glm-5",
             1_000,
+            0,
             0,
             500,
             Some(&snapshot)
@@ -415,10 +320,11 @@ fn models_dev_rates_follow_upstream_codex_cost_semantics() {
     );
     // Routed Codex rows share these rates.
     close(
-        CostUsagePricing::codex_cost_usd_with_pricing_snapshot(
+        CostUsagePricing::codex_cost_usd_with_cache_write_and_pricing_snapshot(
             "deepseek/bare",
             200_001,
             100_000,
+            0,
             1_000,
             Some(&snapshot),
         )

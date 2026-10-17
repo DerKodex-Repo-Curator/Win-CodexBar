@@ -53,6 +53,7 @@ fn session_meta_pre_read_accepts_snake_and_camel_fork_identity() {
             history_base_thread_id: Some("history-snake".to_string()),
             is_subagent: false,
             subagent_history_start_ordinal: None,
+            has_creator_account: false,
         }
     );
 
@@ -126,7 +127,7 @@ fn is_line_boundary_offset_exact_newline_returns_true() {
     // F2: offset pointing right after a newline is a valid boundary.
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("f.jsonl");
-    // "line1\nline2\n" â€” offset 6 is right after first \n
+    // "line1\nline2\n" — offset 6 is right after first \n
     std::fs::write(&path, b"line1\nline2\n").unwrap();
     assert!(JsonlScanner::is_line_boundary_offset(&path, 6));
 }
@@ -136,7 +137,7 @@ fn is_line_boundary_offset_midline_returns_false() {
     // F2: offset pointing mid-line (byte before is not \n) returns false.
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("f.jsonl");
-    // "line1\nline2\n" â€” offset 3 is mid-line (byte before is 'n')
+    // "line1\nline2\n" — offset 3 is mid-line (byte before is 'n')
     std::fs::write(&path, b"line1\nline2\n").unwrap();
     assert!(!JsonlScanner::is_line_boundary_offset(&path, 3));
 }
@@ -362,6 +363,9 @@ fn codex_cache_schema_policy_helpers_rebuild_mismatched_load() {
 
     assert!(codex_cache_schema_is_current(CODEX_CACHE_SCHEMA_VERSION));
     assert!(!codex_cache_schema_is_current(0));
+    // Version 6 caches priced ChatGPT-plan Auto-review requests as unpriced
+    // (upstream #4452), so they must be rebuilt.
+    assert!(!codex_cache_schema_is_current(6));
 
     let mut stamped = CostUsageCache::default();
     codex_cache_stamp_schema_version(&mut stamped);
@@ -374,7 +378,7 @@ fn codex_cache_schema_policy_helpers_rebuild_mismatched_load() {
 #[test]
 fn save_cache_persists_small_codex_artifact() {
     // F19 integration: a normal-sized Codex cache is persisted and
-    // reloadable â€” the MAX_LOAD_BYTES refusal does not false-positive.
+    // reloadable — the MAX_LOAD_BYTES refusal does not false-positive.
     let root = tempfile::tempdir().unwrap();
     let cache_root = root.path().to_path_buf();
     let mut cache = CostUsageCache {
@@ -434,7 +438,7 @@ fn stale_loaded_cache_does_not_replace_newer_baseline() {
 #[test]
 fn save_cache_refuses_non_bounded_provider_oversize() {
     // F19: non-bounded providers (e.g. Claude) skip the refusal check
-    // entirely â€” the MAX_LOAD_BYTES guard only applies to bounded providers.
+    // entirely — the MAX_LOAD_BYTES guard only applies to bounded providers.
     // This test confirms the is_bounded_provider gate works: Claude cache
     // is saved regardless of the MAX_LOAD_BYTES check (which is Codex-only).
     let root = tempfile::tempdir().unwrap();
@@ -497,7 +501,7 @@ fn save_cache_refusal_removes_preexisting_destination_artifact() {
     // Force refusal with a 1-byte limit: encoded cache will exceed it.
     JsonlScanner::save_cache_with_limit(ProviderId::Codex, &mut cache, Some(&cache_root), 1);
 
-    // Destination must be gone â€” no stale artifact may persist.
+    // Destination must be gone — no stale artifact may persist.
     assert!(
         !cache_path.exists(),
         "refusal must remove preexisting destination artifact"

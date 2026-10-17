@@ -185,8 +185,8 @@ fn interleaved_lineage_totals_never_exceed_high_watermark_growth() {
 
 #[test]
 fn interleaved_lineage_mid_range_climb_below_watermark_does_not_readd() {
-    // 100 â†’ 5 (rewind) â†’ 80 (mid-range below water) â†’ 101 (above water).
-    // Phase-1 containment: do not re-add the 5â†’80 climb; only growth above
+    // 100 → 5 (rewind) → 80 (mid-range below water) → 101 (above water).
+    // Phase-1 containment: do not re-add the 5→80 climb; only growth above
     // the historical high watermark counts.
     let day = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
     let range = CostUsageDayRange::new(day, day);

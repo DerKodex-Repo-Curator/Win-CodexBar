@@ -38,9 +38,11 @@ mod claude_scan;
 mod claude_usage;
 mod codex;
 mod daily_history;
+mod hourly;
 mod read_receipt;
 mod stats;
 mod today;
+mod token_activity;
 mod window;
 use claude_events::{ClaudeEvent, is_preliminary_claude_usage};
 pub use claude_incomplete::ClaudeIncompleteReport;
@@ -53,13 +55,16 @@ use claude_scan::{
 };
 use claude_usage::ClaudeUsageDedupKey;
 pub use daily_history::{
-    DailyCostAndIncomplete, get_daily_cost_and_incomplete_history, get_daily_cost_history,
-    get_daily_token_history, has_cost_usage_sources,
+    ClaudeDailyAndHourlyCosts, DailyCostAndIncomplete, get_claude_daily_and_hourly_cost_history,
+    get_daily_cost_and_incomplete_history, get_daily_cost_history, get_daily_token_history,
+    has_cost_usage_sources,
 };
 use daily_history::{add_claude_record_to_daily_tokens, day_slots, sorted_days};
+pub use hourly::HourlyCostPoint;
 pub use read_receipt::CodexScanReadReceipt;
 pub use stats::CostScanStats;
 pub use today::TodayUsage;
+pub use token_activity::{TOKEN_ACTIVITY_DAYS, TokenActivityDay, daily_token_activity};
 
 /// Completeness of the pricing coverage in a [`CostSummary`] (upstream 0.48.0 F18).
 ///

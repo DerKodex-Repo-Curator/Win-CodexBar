@@ -14,6 +14,8 @@ use crate::core::CostUsageDayRange;
 use crate::cost_reporting_period::cost_bucket_zone;
 use crate::providers::opencodego::local as opencodego_local;
 
+use super::hourly::{HourlyCostAccumulator, HourlyCostPoint};
+
 /// Check if any cost usage sources are available
 #[allow(
     dead_code,
@@ -74,7 +76,39 @@ pub type DailyCostAndIncomplete = (Vec<(String, Option<f64>)>, Vec<(String, u32)
 /// requests (upstream 0.60.5 #3688). Days with no incomplete request are
 /// absent from the second vector; it is empty for every other provider.
 pub fn get_daily_cost_and_incomplete_history(provider: &str, days: u32) -> DailyCostAndIncomplete {
+    let (daily, incomplete, _) = daily_cost_history(provider, days, None);
+    (daily, incomplete)
+}
+
+/// Daily costs, local-hour costs, and whether the Claude walk was complete.
+pub type ClaudeDailyAndHourlyCosts = (Vec<(String, Option<f64>)>, Vec<HourlyCostPoint>, bool);
+
+/// Claude daily costs plus local-hour costs from one de-duplicated log walk.
+/// The hourly series is empty unless the walk read every file completely, so
+/// a partial scan never draws an hour lower than it was. The flag reports
+/// whether the walk was complete.
+pub fn get_claude_daily_and_hourly_cost_history(days: u32) -> ClaudeDailyAndHourlyCosts {
+    let mut hourly = HourlyCostAccumulator::default();
+    let (daily, _, complete) = daily_cost_history("claude", days, Some(&mut hourly));
+    let hourly = if complete {
+        hourly.into_points()
+    } else {
+        Vec::new()
+    };
+    (daily, hourly, complete)
+}
+
+/// Daily costs, per-day incomplete counts, and whether the Claude walk read
+/// every file.
+type DailyCostHistory = (Vec<(String, Option<f64>)>, Vec<(String, u32)>, bool);
+
+fn daily_cost_history(
+    provider: &str,
+    days: u32,
+    mut hourly: Option<&mut HourlyCostAccumulator>,
+) -> DailyCostHistory {
     let mut daily_incomplete = Vec::new();
+    let mut complete = false;
     let scanner = CostScanner::new(days);
     let today = cost_bucket_zone().date(Utc::now());
     let mut daily_costs = day_slots(
@@ -120,10 +154,17 @@ pub fn get_daily_cost_and_incomplete_history(provider: &str, days: u32) -> Daily
             let cutoff = Utc::now() - Duration::days(days as i64);
             let mut unknown_cost_dates = HashSet::new();
             let walk = scanner.walk_claude_records(&cutoff, None, |record| {
+                if let (Some(hourly), Some(timestamp)) = (hourly.as_deref_mut(), record.timestamp) {
+                    let zone = cost_bucket_zone();
+                    if daily_costs.contains_key(&today::day_key(zone.date(timestamp))) {
+                        hourly.add(zone, timestamp, record.cost);
+                    }
+                }
                 add_claude_record_to_daily_costs(&mut daily_costs, &mut unknown_cost_dates, record)
             });
             daily_incomplete = walk.incomplete.resolve(&walk.completed_keys).daily_sorted();
-            if walk.roots_present && walk.scan.is_complete() {
+            complete = walk.roots_present && walk.scan.is_complete();
+            if complete {
                 zero_fill_uninitialized_claude_daily_costs(&mut daily_costs, &unknown_cost_dates);
             }
         }
@@ -154,7 +195,7 @@ pub fn get_daily_cost_and_incomplete_history(provider: &str, days: u32) -> Daily
         _ => {}
     }
 
-    (sorted_days(daily_costs), daily_incomplete)
+    (sorted_days(daily_costs), daily_incomplete, complete)
 }
 
 /// Daily token totals (provider-aware, see [`cache_is_separate_from_input`])

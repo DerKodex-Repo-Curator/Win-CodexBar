@@ -289,7 +289,9 @@ fn malformed_usage_input_keeps_valid_rows_but_marks_source_incomplete() {
     let mut seen = HashSet::new();
     let evidence = scan_roots_into(
         &mut summary,
-        Utc::now() - Duration::days(365),
+        DateTime::parse_from_rfc3339("2026-07-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc),
         None,
         &mut seen,
         vec![sessions],
@@ -357,7 +359,8 @@ fn daily_tokens_count_cache_like_the_window_total() {
 
 #[test]
 fn session_roots_include_pi_and_omp() {
-    let home = PathBuf::from("/home/user");
+    let dir = tempdir().unwrap();
+    let home = dir.path().to_path_buf();
     let roots = pi_compatible_session_roots_for(&home, &home, &EnvMap::new());
     assert!(
         roots

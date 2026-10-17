@@ -1,11 +1,15 @@
-//! Qwen Cloud personal token-plan provider (upstream 0.46.0).
+//! Qwen Cloud personal and team token-plan provider (upstream 0.46.0; team 0.74.0+).
 //!
 //! Cookie-authenticated OneConsole gateway:
 //! `POST https://cs-data.qwencloud.com/data/api.json?...`
-//! with `IntlBroadScopeAspnGateway` / `sfm_bailian`.
+//! with `IntlBroadScopeAspnGateway` / `sfm_bailian` for individual.
+//! Team (see [`team`]) runs first and falls back to Individual.
 
 #[cfg(test)]
 mod monthly_tests;
+mod team;
+#[cfg(test)]
+mod team_tests;
 
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
@@ -14,15 +18,15 @@ use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
-use crate::providers::browser_cookie_header;
+use crate::providers::{browser_cookie_header, strip_cookie_prefix};
 
 const GATEWAY_BASE_URL: &str = "https://home.qwencloud.com";
 const DATA_GATEWAY_BASE_URL: &str = "https://cs-data.qwencloud.com";
-const DASHBOARD_URL: &str = "https://home.qwencloud.com/billing/subscription/token-plan-individual";
-const STATUS_PAGE_URL: &str = "https://status.alibabacloud.com";
+pub(crate) const DASHBOARD_URL: &str =
+    "https://home.qwencloud.com/billing/subscription/token-plan-individual";
 const PRODUCT_CODE: &str = "sfm_tokenplansolo_public_intl";
 const CONSOLE_PRODUCT: &str = "sfm_bailian";
 const CONSOLE_ACTION: &str = "IntlBroadScopeAspnGateway";
@@ -52,9 +56,8 @@ const WEEKLY_MINUTES: u32 = 7 * 24 * 60;
 const LEGACY_MINUTES: u32 = 30 * 24 * 60;
 const MONTHLY_MINUTES: u32 = 30 * 24 * 60;
 
-pub struct QwenCloudProvider {
-    metadata: ProviderMetadata,
-}
+#[derive(Default)]
+pub struct QwenCloudProvider;
 
 #[derive(Debug, Clone, PartialEq)]
 struct QwenCloudSnapshot {
@@ -91,24 +94,13 @@ const USAGE_WINDOW_KEYS: &[&str] = &[
 
 impl QwenCloudProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::QwenCloud,
-                display_name: "Qwen Cloud",
-                session_label: "5-hour",
-                weekly_label: "Weekly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(DASHBOARD_URL),
-                status_page_url: Some(STATUS_PAGE_URL),
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
-    async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
+    async fn fetch_via_web(
+        &self,
+        ctx: &FetchContext,
+    ) -> Result<ProviderFetchResult, ProviderError> {
         let cookie_header = Self::resolve_cookie_header(ctx)?;
         let client = crate::core::credentialed_http_client_builder()
             .timeout(std::time::Duration::from_secs(ctx.web_timeout.max(1)))
@@ -116,22 +108,51 @@ impl QwenCloudProvider {
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        let sec_token = Self::resolve_sec_token(&client, &cookie_header, ctx)
+        let team_timeout =
+            team::REQUEST_TIMEOUT.min(std::time::Duration::from_secs(ctx.web_timeout.max(1)));
+        let team_error = match team::fetch(
+            &client,
+            team::BASE_URL,
+            &cookie_header,
+            team_timeout,
+            Utc::now().timestamp_millis(),
+        )
+        .await
+        {
+            Ok(Some(team)) => return Ok(team::to_result(&team)),
+            Ok(None) => None,
+            Err(error) => Some(error),
+        };
+
+        let individual = self
+            .fetch_individual(&client, &cookie_header, ctx)
+            .await
+            .map(|usage| ProviderFetchResult::new(usage, "web"));
+        team::choose_result(team_error, individual)
+    }
+
+    async fn fetch_individual(
+        &self,
+        client: &reqwest::Client,
+        cookie_header: &str,
+        ctx: &FetchContext,
+    ) -> Result<UsageSnapshot, ProviderError> {
+        let sec_token = Self::resolve_sec_token(client, cookie_header, ctx)
             .await
             .ok_or(ProviderError::AuthRequired)?;
 
         let usage_body = Self::post_api(
-            &client,
+            client,
             USAGE_API,
             Map::new(),
             &sec_token,
-            &cookie_header,
+            cookie_header,
             ctx,
         )
         .await?;
 
         let subscription_body = Self::post_api_optional(
-            &client,
+            client,
             SUBSCRIPTION_API,
             {
                 let mut data = Map::new();
@@ -142,17 +163,17 @@ impl QwenCloudProvider {
                 data
             },
             &sec_token,
-            &cookie_header,
+            cookie_header,
             ctx,
         )
         .await;
 
         let quota_config_body = Self::post_api_optional(
-            &client,
+            client,
             QUOTA_CONFIG_API,
             Map::new(),
             &sec_token,
-            &cookie_header,
+            cookie_header,
             ctx,
         )
         .await;
@@ -395,7 +416,7 @@ impl QwenCloudProvider {
         let (primary, secondary, mut primary_label, monthly_extra) =
             match (five_hour.or(legacy), weekly) {
                 (Some(primary), secondary) => (primary, secondary, None, monthly),
-                (None, Some(weekly)) => (weekly, None, Some(self.metadata.weekly_label), monthly),
+                (None, Some(weekly)) => (weekly, None, Some(self.metadata().weekly_label), monthly),
                 (None, None) => match monthly {
                     Some(monthly) => (monthly, None, None, None),
                     None => {
@@ -426,28 +447,15 @@ impl QwenCloudProvider {
     }
 }
 
-impl Default for QwenCloudProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for QwenCloudProvider {
     fn id(&self) -> ProviderId {
         ProviderId::QwenCloud
     }
 
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
-    }
-
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
-            SourceMode::Auto | SourceMode::Web => {
-                let usage = self.fetch_via_web(ctx).await?;
-                Ok(ProviderFetchResult::new(usage, "web"))
-            }
+            SourceMode::Auto | SourceMode::Web => self.fetch_via_web(ctx).await,
             SourceMode::Cli | SourceMode::OAuth => {
                 Err(ProviderError::UnsupportedSource(ctx.source_mode))
             }
@@ -458,8 +466,12 @@ impl Provider for QwenCloudProvider {
         vec![SourceMode::Auto, SourceMode::Web]
     }
 
-    fn supports_web(&self) -> bool {
-        true
+    fn error_state_kind(&self, error: &ProviderError) -> crate::core::ProviderStateKind {
+        if team::is_auth_expired(error) {
+            crate::core::ProviderStateKind::ExpiredSession
+        } else {
+            error.state_kind()
+        }
     }
 }
 
@@ -687,13 +699,7 @@ fn throw_if_error_payload(value: &Value) -> Result<(), ProviderError> {
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let mut header = raw.trim();
-    if header
-        .get(.."cookie:".len())
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-    {
-        header = header["cookie:".len()..].trim();
-    }
+    let mut header = strip_cookie_prefix(raw.trim());
     if (header.starts_with('"') && header.ends_with('"'))
         || (header.starts_with('\'') && header.ends_with('\''))
     {

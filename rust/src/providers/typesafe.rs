@@ -10,11 +10,12 @@ use std::time::Duration;
 use super::{BoundedBodyError, read_bounded_response};
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderDisplayDetail, ProviderError,
-    ProviderFetchResult, ProviderId, ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsageSnapshot,
 };
 
-const BILLING_URL: &str = "https://console.typesafe.ai/settings/billing";
+pub(crate) const BILLING_URL: &str = "https://console.typesafe.ai/settings/billing";
 const ORIGIN: &str = "https://console.typesafe.ai";
+const COOKIE_DOMAINS: [&str; 2] = ["console.typesafe.ai", "typesafe.ai"];
 const MAX_CHUNKS: usize = 60;
 const CHUNK_SCAN_CONCURRENCY: usize = 6;
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
@@ -37,26 +38,12 @@ struct Billing {
 }
 
 pub struct TypeSafeProvider {
-    metadata: ProviderMetadata,
     client: Client,
 }
 
 impl TypeSafeProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::TypeSafe,
-                display_name: "TypeSafe",
-                session_label: "Balance",
-                weekly_label: "Spend",
-                supports_opus: false,
-                supports_credits: true,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(BILLING_URL),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: crate::core::credentialed_http_client_builder()
                 .redirect(Policy::none())
                 .timeout(REQUEST_TIMEOUT)
@@ -66,24 +53,35 @@ impl TypeSafeProvider {
     }
 
     async fn fetch_web(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
-        let cookie = match ctx.manual_cookie_header.as_deref() {
-            Some(raw) => crate::providers::normalize_cookie_header(raw).ok_or_else(|| {
+        if let Some(raw) = ctx.manual_cookie_header.as_deref() {
+            let cookie = crate::providers::normalize_cookie_header(raw).ok_or_else(|| {
                 ProviderError::Other(
                     "TypeSafe needs a nonempty Cookie header from the billing page.".into(),
                 )
-            })?,
-            None => {
-                crate::providers::browser_cookie_header(&["console.typesafe.ai", "typesafe.ai"])?
+            })?;
+            return self.fetch_with_cookie(&cookie).await;
+        }
+        // A signed-out browser session moves on to the next browser.
+        let mut sessions = crate::providers::browser_cookie_sessions(ctx, &COOKIE_DOMAINS);
+        let mut rejected = None;
+        for cookie in sessions.by_ref() {
+            match self.fetch_with_cookie(&cookie).await {
+                Err(ProviderError::AuthRequired) => rejected = Some(ProviderError::AuthRequired),
+                result => return result,
             }
-        };
-        let page = self.get(BILLING_URL, &cookie, "text/html").await?;
-        let action_id = self.discover_action(&cookie, &page).await?;
-        let response = match self.post_action(&cookie, &action_id).await? {
+        }
+        Err(rejected.unwrap_or_else(|| sessions.exhaustion_error()))
+    }
+
+    async fn fetch_with_cookie(&self, cookie: &str) -> Result<ProviderFetchResult, ProviderError> {
+        let page = self.get(BILLING_URL, cookie, "text/html").await?;
+        let action_id = self.discover_action(cookie, &page).await?;
+        let response = match self.post_action(cookie, &action_id).await? {
             Some(response) => response,
             None => {
-                let refreshed_page = self.get(BILLING_URL, &cookie, "text/html").await?;
-                let refreshed_action = self.discover_action(&cookie, &refreshed_page).await?;
-                self.post_action(&cookie, &refreshed_action)
+                let refreshed_page = self.get(BILLING_URL, cookie, "text/html").await?;
+                let refreshed_action = self.discover_action(cookie, &refreshed_page).await?;
+                self.post_action(cookie, &refreshed_action)
                     .await?
                     .ok_or_else(|| parse_failure("server action stayed stale after rediscovery"))?
             }
@@ -172,9 +170,6 @@ impl Default for TypeSafeProvider {
 impl Provider for TypeSafeProvider {
     fn id(&self) -> ProviderId {
         ProviderId::TypeSafe
-    }
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         match ctx.source_mode {
