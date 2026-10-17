@@ -265,6 +265,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn credits_and_usage_json_samples_decode() {
+        let credits: CreditsResponse = serde_json::from_str(
+            r#"{"currency":"usd","balanceMicro":8059489,"uncollectedMicro":250000}"#,
+        )
+        .expect("credits sample");
+        assert_eq!(credits.currency, "usd");
+        assert_eq!(credits.balance_micro, 8_059_489);
+        assert_eq!(credits.uncollected_micro, 250_000);
+
+        let usage: UsageResponse =
+            serde_json::from_str(r#"{"currency":"usd","daily":{"costMicro":10000}}"#)
+                .expect("usage sample");
+        assert_eq!(usage.currency, "usd");
+        assert_eq!(usage.daily.map(|window| window.cost_micro), Some(10_000));
+        assert!(usage.weekly.is_none());
+        assert!(usage.monthly.is_none());
+    }
+
+    #[test]
     fn credits_status_messages_are_pinned() {
         use crate::providers::http_util::{StatusPolicy, status_outcome};
         let policy = StatusPolicy::auth_401_403("CrossModel credits");

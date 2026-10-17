@@ -338,6 +338,21 @@ mod tests {
     use chrono::TimeZone;
 
     #[test]
+    fn history_json_sample_parses_rows() {
+        let root: Value = serde_json::from_str(
+            r#"{"data":[{"creation_time":1788220800,"cost_points":12.5,"query_id":"q1"},{"timestamp":"2026-08-30T00:00:00Z","points":3},{"created_at":"2026-08-29T12:00:00Z"}],"has_more":false}"#,
+        )
+        .expect("history sample");
+        let entries: Vec<PoeHistoryEntry> = history_rows(&root)
+            .into_iter()
+            .filter_map(parse_history_entry)
+            .collect();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].points, 12.5);
+        assert_eq!(entries[1].points, 3.0);
+    }
+
+    #[test]
     fn status_messages_are_pinned() {
         use crate::providers::http_util::{StatusPolicy, status_outcome};
         let usage = StatusPolicy::auth_401_403("Poe usage");

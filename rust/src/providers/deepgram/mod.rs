@@ -305,6 +305,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn projects_and_usage_json_samples_decode() {
+        let projects: ProjectsResponse = serde_json::from_str(
+            r#"{"projects":[{"project_id":"project-1","name":"Prod"},{"project_id":"project-2"}]}"#,
+        )
+        .expect("projects sample");
+        assert_eq!(projects.projects.len(), 2);
+        assert_eq!(projects.projects[0].project_id, "project-1");
+        assert_eq!(projects.projects[0].name.as_deref(), Some("Prod"));
+        assert_eq!(projects.projects[1].name, None);
+
+        let usage: UsageResponse = serde_json::from_str(
+            r#"{"start":"2026-08-01","end":"2026-08-31","results":[{"hours":1.5,"total_hours":2.0,"agent_hours":0.5,"tokens_in":1000,"tokens_out":200,"requests":4}]}"#,
+        )
+        .expect("usage sample");
+        assert_eq!(usage.start.as_deref(), Some("2026-08-01"));
+        assert_eq!(usage.results.len(), 1);
+        assert_eq!(usage.results[0].requests, Some(4));
+        assert_eq!(usage.results[0].tokens_in, Some(1000));
+    }
+
+    #[test]
     fn status_messages_are_pinned() {
         use crate::providers::http_util::{StatusPolicy, status_outcome};
         let projects = StatusPolicy::auth_401("Deepgram projects API")
