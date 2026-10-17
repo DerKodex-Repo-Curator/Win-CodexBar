@@ -26,8 +26,8 @@ pub(super) fn build_usage_spend_summary(
     codex_scan_options.include_pi_sessions = include_pi_in_native;
     // Any period other than 7d/30d costs one extra scan per provider.
     let (
-        (codex_7_summary, codex_30_summary, codex_period_summary),
-        (claude_7_summary, claude_30_summary, claude_period_summary),
+        (codex_7_summary, codex_30_summary, codex_period_summary, codex_activity),
+        (claude_7_summary, claude_30_summary, claude_period_summary, claude_activity),
         (pi_7_summary, pi_30_summary, pi_period_summary),
     ) = std::thread::scope(|scope| {
         let codex = scope.spawn(move || {
@@ -42,7 +42,8 @@ pub(super) fn build_usage_spend_summary(
                     .with_options(codex_scan_options)
                     .scan_codex()
             });
-            (seven, thirty, selected)
+            let activity = daily_token_activity("codex", TOKEN_ACTIVITY_DAYS);
+            (seven, thirty, selected, activity)
         });
         let claude = scope.spawn(|| {
             let seven = CostScanner::new(7)
@@ -53,7 +54,8 @@ pub(super) fn build_usage_spend_summary(
                 CostScanner::for_period(period)
                     .scan_claude_with_cancel_and_pi_sessions(None, include_pi_in_native)
             });
-            (seven, thirty, selected)
+            let activity = daily_token_activity("claude", TOKEN_ACTIVITY_DAYS);
+            (seven, thirty, selected, activity)
         });
         let pi = scope.spawn(|| {
             let seven = CostScanner::new(7).scan_pi();
@@ -146,6 +148,8 @@ pub(super) fn build_usage_spend_summary(
             }
         }
     }
+
+    let token_activity = token_activity_sources(&provider_ids, codex_activity, claude_activity);
 
     let cached_by_id: HashMap<&str, &ProviderUsageSnapshot> = cached
         .iter()
@@ -361,6 +365,11 @@ pub(super) fn build_usage_spend_summary(
     }
 
     let contract = codex_period_contract;
+    let claude_trend = rows.iter().any(|row| row.provider_id == "claude").then(|| {
+        let (daily, hourly) = claude_trend_history(period.sidecar_days(now), now);
+        (claude_period_summary.known_zero, daily, hourly)
+    });
+    let trend = build_spend_trend(&rows, &contract, claude_trend, period, now);
     let reporting_day = last_included_reporting_day(&contract);
     let dashboard_timezone = codexbar::core::local_timezone_name();
     UsageSpendSummary {
@@ -369,7 +378,143 @@ pub(super) fn build_usage_spend_summary(
         reporting_period: period.raw(),
         reporting_day,
         dashboard_timezone,
+        cost_tracking_enabled: true,
+        token_activity,
+        trend: Some(trend),
     }
+}
+
+/// The summary while "Track costs" is off: no rows, no scan.
+pub(super) fn cost_tracking_off_summary(period: CostReportingPeriod) -> UsageSpendSummary {
+    UsageSpendSummary {
+        rows: Vec::new(),
+        contract: SpendContract::empty("codex", period),
+        reporting_period: period.raw(),
+        reporting_day: chrono::Local::now()
+            .date_naive()
+            .format("%Y-%m-%d")
+            .to_string(),
+        dashboard_timezone: codexbar::core::local_timezone_name(),
+        cost_tracking_enabled: false,
+        token_activity: Vec::new(),
+        trend: None,
+    }
+}
+
+type DailyCosts = Vec<(String, Option<f64>)>;
+type HourlyCosts = Vec<codexbar::cost_scanner::HourlyCostPoint>;
+
+/// Window length, local reporting day, and cost bucket zone of one Claude
+/// trend walk.
+type ClaudeTrendKey = (u32, chrono::NaiveDate, String);
+
+struct ClaudeTrendMemo {
+    key: ClaudeTrendKey,
+    stored_at: std::time::Instant,
+    daily: DailyCosts,
+    hourly: HourlyCosts,
+}
+
+/// The Claude trend walk reads every transcript in the window with no
+/// incremental cache, so a complete result is reused for the cost scan
+/// debounce interval instead of re-walking on every summary rebuild.
+fn claude_trend_history(days: u32, now: chrono::DateTime<Utc>) -> (DailyCosts, HourlyCosts) {
+    static MEMO: Mutex<Option<ClaudeTrendMemo>> = Mutex::new(None);
+    let zone = codexbar::cost_reporting_period::cost_bucket_zone();
+    let key: ClaudeTrendKey = (days, zone.date(now), zone.identifier());
+    let ttl = std::time::Duration::from_secs(
+        codexbar::core::CostScanOptions::default().refresh_min_interval_secs,
+    );
+    if let Some(memo) = MEMO
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+        .filter(|memo| memo.key == key && memo.stored_at.elapsed() <= ttl)
+    {
+        return (memo.daily.clone(), memo.hourly.clone());
+    }
+    let (daily, hourly, complete) =
+        codexbar::cost_scanner::get_claude_daily_and_hourly_cost_history(days);
+    // A partial walk is never reused, so the next rebuild retries it.
+    if complete {
+        *MEMO
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(ClaudeTrendMemo {
+            key,
+            stored_at: std::time::Instant::now(),
+            daily: daily.clone(),
+            hourly: hourly.clone(),
+        });
+    }
+    (daily, hourly)
+}
+/// Claude's window known-zero flag with its daily and hourly cost series.
+type ClaudeTrendSeries = (bool, DailyCosts, HourlyCosts);
+
+/// Recorded daily (and, where the source keeps timestamps, hourly) spend per
+/// source over the selected window. Local-log providers use their own scans;
+/// every other USD row contributes its provider-reported daily costs.
+pub(super) fn build_spend_trend(
+    rows: &[UsageSpendRow],
+    codex: &SpendContract,
+    claude: Option<ClaudeTrendSeries>,
+    period: CostReportingPeriod,
+    now: chrono::DateTime<Utc>,
+) -> SpendTrend {
+    use codexbar::spend_trend::{SpendTrendBuilder, SpendTrendSource};
+    let mut series: Vec<(SpendTrendSource, DailyCosts, HourlyCosts)> = Vec::new();
+    for row in rows {
+        let source = |known_zero: bool| SpendTrendSource {
+            id: row.provider_id.clone(),
+            provider_id: row.provider_id.clone(),
+            display_name: row.display_name.clone(),
+            known_zero,
+        };
+        match row.provider_id.as_str() {
+            "codex" => series.push((
+                source(codex.known_zero),
+                codex
+                    .daily
+                    .iter()
+                    .map(|point| (point.day.clone(), point.cost_usd))
+                    .collect(),
+                Vec::new(),
+            )),
+            "claude" => {
+                if let Some((known_zero, daily, hourly)) = claude.clone() {
+                    series.push((source(known_zero), daily, hourly));
+                }
+            }
+            _ if row.included_in_overview
+                && row.currency.eq_ignore_ascii_case("USD")
+                && !row.daily.is_empty() =>
+            {
+                series.push((
+                    source(false),
+                    row.daily
+                        .iter()
+                        .map(|point| (point.day.clone(), Some(point.amount)))
+                        .collect(),
+                    Vec::new(),
+                ));
+            }
+            _ => {}
+        }
+    }
+    // All available history opens at the first recorded spend, not at 1970.
+    let earliest = series
+        .iter()
+        .flat_map(|(_, daily, _)| daily.iter())
+        .filter(|(_, cost)| cost.is_some_and(|cost| cost > 0.0))
+        .filter_map(|(day, _)| chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok())
+        .min();
+    let zone = codexbar::cost_reporting_period::cost_bucket_zone();
+    let bounds = period.bounds(now, zone, earliest.or(Some(zone.date(now))));
+    let mut builder = SpendTrendBuilder::new(bounds, zone);
+    for (source, daily, hourly) in series {
+        builder.add_source(source, daily, &hourly);
+    }
+    builder.finish()
 }
 
 /// Reuse the fixed scan when it already covers the selected period.

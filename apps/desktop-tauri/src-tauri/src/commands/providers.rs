@@ -7,7 +7,7 @@ use super::warning_identity::WarningIdentity;
 use super::*;
 use chrono::{Local, Utc};
 use codexbar::core::HookUsageWindow;
-use codexbar::notifications::WarningScope;
+use codexbar::notifications::{LimitResetObservation, LimitResetSample, WarningScope};
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -18,6 +18,8 @@ mod reset_backfill;
 #[cfg(test)]
 pub(crate) use fetch_context::provider_cookie_domain;
 pub(crate) use fetch_context::{build_fetch_context, provider_fetch_timeout};
+#[cfg(test)]
+pub(super) use notify::limit_reset_sample;
 pub(super) use notify::quota_notification_account_identity;
 use notify::update_tray_and_notifications;
 
@@ -38,6 +40,13 @@ impl RefreshScope {
     }
 
     fn refresh_account_lanes(self) -> bool {
+        matches!(self, Self::AllEnabled)
+    }
+
+    /// Upstream polls status pages from its full and per-provider refreshes
+    /// (`UsageStore.swift:842`). The 60-second auto-resume probe is
+    /// Windows-only, so it must not add status rounds of its own.
+    fn polls_status(self) -> bool {
         matches!(self, Self::AllEnabled)
     }
 }
@@ -191,6 +200,9 @@ async fn do_refresh_providers_with_policy(
             return Ok(ProviderRefreshOutcome::Skipped { reason });
         }
     };
+    if scope.polls_status() {
+        crate::status_poller::spawn_poll(app, &inputs.settings, &refresh_ids, force);
+    }
 
     // Ensure cache only contains currently enabled providers for this generation.
     if scope == RefreshScope::AllEnabled
@@ -291,12 +303,14 @@ fn spawn_provider_refreshes(
         );
         // Resolved here rather than inside the fetch: forecast history is keyed by
         // account, and the managed-account id is the only discriminator Codex exposes.
-        let token_account_id = inputs
+        let active_account = inputs
             .token_accounts
             .get(&id)
-            .and_then(ProviderAccountData::active_account)
-            .map(|account| account.id);
+            .and_then(ProviderAccountData::active_account);
+        let token_account_id = active_account.map(|account| account.id);
+        let token_account_label = active_account.and_then(|account| header_label(&account.label));
         let hooks_enabled = inputs.settings.hooks_enabled;
+        let pace_work_days = inputs.settings.weekly_progress_work_days;
 
         handles.push(tokio::spawn(async move {
             let Ok(_permit) = fetch_permits.acquire_owned().await else {
@@ -307,8 +321,12 @@ fn spawn_provider_refreshes(
                 id,
                 ctx,
                 generation,
-                token_account_id,
+                ActiveTokenAccount {
+                    id: token_account_id,
+                    label: token_account_label,
+                },
                 hooks_enabled,
+                pace_work_days,
             )
             .await;
         }));
@@ -343,16 +361,32 @@ fn spawn_provider_refreshes(
     handles
 }
 
+/// The active token account a refresh runs under: its id scopes forecast
+/// history; its label is header display only.
+struct ActiveTokenAccount {
+    id: Option<uuid::Uuid>,
+    label: Option<String>,
+}
+
+/// A token-account label fit for the card header, or `None` when blank.
+fn header_label(label: &str) -> Option<String> {
+    let label = label.trim();
+    (!label.is_empty()).then(|| label.to_string())
+}
+
 async fn refresh_provider(
     app: tauri::AppHandle,
     id: ProviderId,
     ctx: FetchContext,
     generation: u64,
-    token_account_id: Option<uuid::Uuid>,
+    token_account: ActiveTokenAccount,
     hooks_enabled: bool,
+    pace_work_days: Option<u8>,
 ) {
-    let (snapshot, account_identity, retention) =
-        fetch_provider_snapshot(id, ctx, token_account_id).await;
+    let (mut snapshot, account_identity, retention) =
+        fetch_provider_snapshot(id, ctx, token_account.id, pace_work_days).await;
+    snapshot.account_label = token_account.label;
+    let token_account_id = token_account.id;
     let fresh_snapshot = snapshot.error.is_none();
     // Captured before last-good preservation can swap in a cached snapshot.
     let fetch_attempt = FetchAttempt::of(&snapshot);
@@ -602,6 +636,7 @@ async fn fetch_provider_snapshot(
     id: ProviderId,
     ctx: FetchContext,
     token_account_id: Option<uuid::Uuid>,
+    pace_work_days: Option<u8>,
 ) -> (ProviderUsageSnapshot, Option<String>, RefreshRetention) {
     let provider = instantiate_provider(id);
     let metadata = provider.metadata().clone();
@@ -615,7 +650,13 @@ async fn fetch_provider_snapshot(
         Ok(result) => {
             let account_identity = result.account_identity().map(ToOwned::to_owned);
             (
-                ProviderUsageSnapshot::from_fetch_result(id, &metadata, &result, token_account_id),
+                ProviderUsageSnapshot::from_fetch_result(
+                    id,
+                    &metadata,
+                    &result,
+                    token_account_id,
+                    pace_work_days,
+                ),
                 account_identity,
                 RefreshRetention {
                     fresh_owner: result.last_good_owner.clone(),
@@ -728,5 +769,15 @@ pub fn get_cached_providers(
         .collect()
 }
 
+#[cfg(test)]
+mod refresh_scope_tests {
+    use super::RefreshScope;
+
+    #[test]
+    fn only_full_refreshes_poll_status_pages() {
+        assert!(RefreshScope::AllEnabled.polls_status());
+        assert!(!RefreshScope::AutoResume.polls_status());
+    }
+}
 #[cfg(test)]
 mod predictive_warning_tests;

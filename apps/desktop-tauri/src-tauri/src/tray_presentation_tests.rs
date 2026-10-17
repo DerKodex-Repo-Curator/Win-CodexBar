@@ -1,5 +1,6 @@
 use super::*;
 use codexbar::core::ProviderId;
+use codexbar::tray::render_stacked_bars_icon_rgba_with_pace;
 
 pub(crate) fn fake_snapshot(
     id: &str,
@@ -28,6 +29,9 @@ pub(crate) fn fake_snapshot_with(
         display_name: display_name.into(),
         primary: window(used_percent),
         secondary: secondary_percent.map(window),
+        secondary_label: None,
+        secondary_label_key: None,
+        model_specific: None,
         tertiary: tertiary_percent.map(window),
         cost: cost.map(|(used, limit)| crate::commands::CostSnapshotBridge {
             used,
@@ -45,7 +49,10 @@ pub(crate) fn fake_snapshot_with(
             account_id: None,
             daily: Vec::new(),
             always_visible: false,
+            folded_into_primary: false,
+            title_key: None,
         }),
+        pace_authoritative: true,
         updated_at: "2025-01-01T00:00:00Z".into(),
         ..Default::default()
     }
@@ -56,6 +63,7 @@ fn single_plan_uses_highest_provider_for_icon_and_summary() {
     let settings = Settings {
         tray_icon_mode: TrayIconMode::Single,
         menu_bar_shows_highest_usage: true,
+        show_as_used: true,
         ..Settings::default()
     };
     let snapshots = vec![
@@ -71,6 +79,7 @@ fn single_plan_uses_highest_provider_for_icon_and_summary() {
             primary_percent: 72.0,
             secondary_percent: None,
             has_error: false,
+            provider_tint: None,
         }
     );
     assert_eq!(
@@ -130,6 +139,7 @@ fn stacked_plan_resolves_distinct_preferences_once() {
         tray_icon_mode: TrayIconMode::Stacked,
         stacked_tray_top_provider: Some("claude".to_string()),
         stacked_tray_bottom_provider: Some("codex".to_string()),
+        show_as_used: true,
         ..Settings::default()
     };
     let snapshots = vec![
@@ -146,6 +156,8 @@ fn stacked_plan_resolves_distinct_preferences_once() {
             top_percent: 72.0,
             bottom_percent: 30.0,
             has_error: false,
+            top_tint: None,
+            bottom_tint: None,
         }
     );
     assert_eq!(
@@ -184,6 +196,7 @@ fn stacked_plan_falls_back_around_stale_and_duplicate_preferences() {
         tray_icon_mode: TrayIconMode::Stacked,
         stacked_tray_top_provider: Some("missing".to_string()),
         stacked_tray_bottom_provider: Some("claude".to_string()),
+        show_as_used: true,
         ..Settings::default()
     };
     let snapshots = vec![
@@ -199,6 +212,8 @@ fn stacked_plan_falls_back_around_stale_and_duplicate_preferences() {
             top_percent: 30.0,
             bottom_percent: 72.0,
             has_error: false,
+            top_tint: None,
+            bottom_tint: None,
         }
     );
     assert_eq!(plan.status_rows[0].snapshot.provider_id, "codex");
@@ -209,6 +224,7 @@ fn stacked_plan_falls_back_around_stale_and_duplicate_preferences() {
 fn one_provider_stacked_mode_falls_back_to_single_provider_bars() {
     let settings = Settings {
         tray_icon_mode: TrayIconMode::Stacked,
+        show_as_used: true,
         ..Settings::default()
     };
     let snapshots = vec![fake_snapshot_with(
@@ -228,6 +244,7 @@ fn one_provider_stacked_mode_falls_back_to_single_provider_bars() {
             primary_percent: 65.0,
             secondary_percent: Some(30.0),
             has_error: false,
+            provider_tint: None,
         }
     );
     assert_eq!(plan.status_rows.len(), 1);
@@ -237,7 +254,8 @@ fn one_provider_stacked_mode_falls_back_to_single_provider_bars() {
 fn one_healthy_provider_never_uses_stacked_renderer() {
     let settings = Settings {
         tray_icon_mode: TrayIconMode::Stacked,
-        menu_bar_shows_percent: true,
+        menu_bar_icon_style: codexbar::settings::MenuBarIconStyle::Percent,
+        show_as_used: true,
         ..Settings::default()
     };
     let healthy = fake_snapshot("codex", "Codex", 30.0);
@@ -252,6 +270,7 @@ fn one_healthy_provider_never_uses_stacked_renderer() {
         TrayIconPlan::Percent {
             percent: 30.0,
             has_error: false,
+            provider_tint: None,
         }
     );
     assert_eq!(plan.status_rows.len(), 1);
@@ -261,7 +280,7 @@ fn one_healthy_provider_never_uses_stacked_renderer() {
 #[test]
 fn all_errors_produce_error_styled_zero_percent_plan() {
     let settings = Settings {
-        menu_bar_shows_percent: true,
+        menu_bar_icon_style: codexbar::settings::MenuBarIconStyle::Percent,
         ..Settings::default()
     };
     let mut snapshot = fake_snapshot("codex", "Codex", 30.0);
@@ -275,6 +294,7 @@ fn all_errors_produce_error_styled_zero_percent_plan() {
         TrayIconPlan::Percent {
             percent: 0.0,
             has_error: true,
+            provider_tint: None,
         }
     );
     assert!(plan.status_rows.is_empty());
@@ -304,6 +324,7 @@ fn plan_uses_selected_metric_and_remaining_display_mode() {
             primary_percent: 85.0,
             secondary_percent: Some(80.0),
             has_error: false,
+            provider_tint: None,
         }
     );
 }
@@ -314,6 +335,7 @@ fn render_icon_delegates_to_resolved_stacked_renderer() {
         tray_icon_mode: TrayIconMode::Stacked,
         stacked_tray_top_provider: Some("claude".to_string()),
         stacked_tray_bottom_provider: Some("codex".to_string()),
+        show_as_used: true,
         ..Settings::default()
     };
     let snapshots = vec![
@@ -324,7 +346,7 @@ fn render_icon_delegates_to_resolved_stacked_renderer() {
 
     assert_eq!(
         plan.render_icon(),
-        render_stacked_bar_icon_rgba(72.0, 40.0, false)
+        render_stacked_bar_icon_rgba_tinted(72.0, 40.0, false, None, None)
     );
 }
 
@@ -335,32 +357,11 @@ fn codex_headline_skips_informational_primary() {
 
     assert_eq!(codex_lane_headline_window(&snapshot).used_percent, 25.0);
 }
-#[test]
-fn pick_tray_provider_highest_picks_max_primary() {
-    let a = fake_snapshot("codex", "Codex", 30.0);
-    let b = fake_snapshot("claude", "Claude", 72.5);
-    let c = fake_snapshot("gemini", "Gemini", 50.0);
-    let refs: Vec<&ProviderUsageSnapshot> = vec![&a, &b, &c];
-    let picked = pick_tray_provider(&refs, /* prefer_highest = */ true)
-        .expect("highest mode should pick a provider");
-    assert_eq!(picked.provider_id, "claude");
-}
-
-#[test]
-fn pick_tray_provider_first_preserves_catalog_order() {
-    let a = fake_snapshot("codex", "Codex", 30.0);
-    let b = fake_snapshot("claude", "Claude", 72.5);
-    let refs: Vec<&ProviderUsageSnapshot> = vec![&a, &b];
-    let picked = pick_tray_provider(&refs, /* prefer_highest = */ false)
-        .expect("non-highest mode should still pick the first entry");
-    assert_eq!(picked.provider_id, "codex");
-}
-
-#[test]
-fn pick_tray_provider_none_when_empty() {
-    let refs: Vec<&ProviderUsageSnapshot> = vec![];
-    assert!(pick_tray_provider(&refs, true).is_none());
-    assert!(pick_tray_provider(&refs, false).is_none());
+fn used_view_settings() -> Settings {
+    Settings {
+        show_as_used: true,
+        ..Settings::default()
+    }
 }
 
 fn fake_extra_window(percent: f64) -> crate::commands::NamedRateWindowSnapshot {
@@ -379,7 +380,7 @@ fn fake_extra_window(percent: f64) -> crate::commands::NamedRateWindowSnapshot {
 
 #[test]
 fn selected_tray_percent_uses_cursor_extra_usage_cost() {
-    let mut settings = Settings::default();
+    let mut settings = used_view_settings();
     settings.set_provider_metric(ProviderId::Cursor, MetricPreference::ExtraUsage);
     let snapshot = fake_snapshot_with(
         "cursor",
@@ -398,7 +399,7 @@ fn selected_tray_percent_uses_cursor_extra_usage_cost() {
 
 #[test]
 fn selected_tray_percent_tracks_extra_rate_window() {
-    let mut settings = Settings::default();
+    let mut settings = used_view_settings();
     settings.set_provider_metric(ProviderId::Copilot, MetricPreference::ExtraUsage);
     let mut snapshot = fake_snapshot("copilot", "Copilot", 20.0);
     snapshot.extra_rate_windows.push(fake_extra_window(42.0));
@@ -411,7 +412,7 @@ fn selected_tray_percent_tracks_extra_rate_window() {
 
 #[test]
 fn copilot_automatic_tracks_highest_extra_rate_window() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let mut snapshot = fake_snapshot("copilot", "Copilot", 20.0);
     snapshot.extra_rate_windows.push(fake_extra_window(42.0));
 
@@ -514,7 +515,7 @@ fn missing_automatic_window_does_not_look_like_available_remaining_progress() {
 
 #[test]
 fn selected_tray_percent_falls_back_when_extra_usage_missing() {
-    let mut settings = Settings::default();
+    let mut settings = used_view_settings();
     settings.set_provider_metric(ProviderId::Cursor, MetricPreference::ExtraUsage);
     let snapshot = fake_snapshot_with("cursor", "Cursor", 10.0, Some(72.0), None, None);
 
@@ -525,7 +526,7 @@ fn selected_tray_percent_falls_back_when_extra_usage_missing() {
 
 #[test]
 fn single_meaningful_secondary_quota_uses_full_single_meter() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let mut snapshot = fake_snapshot_with("claude", "Claude", 0.0, Some(42.0), None, None);
     snapshot.primary.is_informational = true;
 
@@ -537,7 +538,7 @@ fn single_meaningful_secondary_quota_uses_full_single_meter() {
 
 #[test]
 fn selected_secondary_quota_is_not_duplicated_when_tertiary_is_meaningful() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let mut snapshot = fake_snapshot_with("claude", "Claude", 0.0, Some(42.0), Some(30.0), None);
     snapshot.primary.is_informational = true;
 
@@ -549,7 +550,7 @@ fn selected_secondary_quota_is_not_duplicated_when_tertiary_is_meaningful() {
 
 #[test]
 fn two_meaningful_quotas_keep_two_meter_layout() {
-    let mut settings = Settings::default();
+    let mut settings = used_view_settings();
     settings.set_provider_metric(ProviderId::Cursor, MetricPreference::Session);
     let snapshot = fake_snapshot_with("cursor", "Cursor", 15.0, Some(40.0), None, None);
 
@@ -561,7 +562,7 @@ fn two_meaningful_quotas_keep_two_meter_layout() {
 
 #[test]
 fn informational_primary_skips_session_and_automatic_phantom_zero() {
-    let mut settings = Settings::default();
+    let mut settings = used_view_settings();
     settings.set_provider_metric(ProviderId::Claude, MetricPreference::Session);
     let mut snapshot = fake_snapshot_with("claude", "Claude", 0.0, Some(42.0), None, None);
     snapshot.primary.is_informational = true;
@@ -580,7 +581,7 @@ fn informational_primary_skips_session_and_automatic_phantom_zero() {
 
 #[test]
 fn claude_automatic_prefers_weekly_when_model_exhausted() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let mut snapshot = fake_snapshot_with("claude", "Claude", 40.0, Some(22.0), None, None);
     snapshot.model_specific = Some(crate::commands::RateWindowSnapshot {
         used_percent: 100.0,
@@ -602,7 +603,7 @@ fn claude_automatic_prefers_weekly_when_model_exhausted() {
 
 #[test]
 fn automatic_prefers_exhausted_weekly_over_low_session() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let snapshot = fake_snapshot_with("codex", "Codex", 20.0, Some(100.0), None, None);
 
     let (primary, _) = selected_tray_percents(&snapshot, &settings);
@@ -617,7 +618,7 @@ fn automatic_prefers_exhausted_weekly_over_low_session() {
 
 #[test]
 fn automatic_picks_highest_among_model_and_extra_windows() {
-    let settings = Settings::default();
+    let settings = used_view_settings();
     let mut snapshot = fake_snapshot_with("gemini", "Gemini", 10.0, Some(30.0), Some(40.0), None);
     snapshot.model_specific = Some(crate::commands::RateWindowSnapshot {
         used_percent: 55.0,
@@ -669,97 +670,605 @@ fn f5_headline_returns_primary_when_all_informational() {
     assert!(headline.is_informational);
 }
 
+fn pace_now() -> chrono::DateTime<chrono::Utc> {
+    "2026-10-12T12:00:00Z".parse().expect("fixed now")
+}
+
+/// A `minutes`-long window that resets `reset_in` minutes after `pace_now`.
+fn paced_window(used: f64, minutes: Option<u32>, reset_in: i64) -> RateWindowSnapshot {
+    let mut window = fake_snapshot("claude", "Claude", used).primary;
+    window.window_minutes = minutes;
+    window.resets_at = Some((pace_now() + chrono::Duration::minutes(reset_in)).to_rfc3339());
+    window
+}
+
+fn paced_snapshot(id: &str, primary: RateWindowSnapshot) -> ProviderUsageSnapshot {
+    let mut snapshot = fake_snapshot(id, id, primary.used_percent);
+    snapshot.primary = primary;
+    snapshot
+}
+
+/// Work days stay off: work-day progress follows the machine time zone.
+fn tint_settings() -> Settings {
+    Settings {
+        menu_bar_color_pace: true,
+        weekly_progress_work_days: None,
+        ..Settings::default()
+    }
+}
+
+fn tint(settings: &Settings, snapshots: &[ProviderUsageSnapshot]) -> Option<TrayPaceColor> {
+    TrayPresentationPlan::resolve_at(settings, snapshots, None, pace_now()).icon_pace
+}
+
+fn render_at(settings: &Settings, snapshots: &[ProviderUsageSnapshot]) -> (Vec<u8>, u32, u32) {
+    TrayPresentationPlan::resolve_at(settings, snapshots, None, pace_now()).render_icon()
+}
+
+/// Half way through a five-hour window the expected use is 50%.
 #[test]
-fn tray_pace_color_is_opt_in_and_follows_canonical_stage() {
-    let pace = |stage: &str, delta_percent: f64| crate::commands::PaceSnapshot {
-        stage: stage.to_string(),
-        delta_percent,
-        will_last_to_reset: true,
-        eta_seconds: None,
-        expected_used_percent: 40.0,
-        actual_used_percent: 32.0,
-        monthly_limit_block: None,
-    };
-    let with_pace = |pace: Option<crate::commands::PaceSnapshot>| {
-        let mut snapshot = fake_snapshot("codex", "Codex", 50.0);
-        snapshot.pace = pace;
-        vec![snapshot]
-    };
-    let default_settings = Settings::default();
-    let colored_settings = Settings {
-        menu_bar_color_pace: true,
-        ..Settings::default()
-    };
-    let colored_percent_settings = Settings {
-        menu_bar_color_pace: true,
-        menu_bar_shows_percent: true,
-        ..Settings::default()
-    };
-    let render = |settings: &Settings, snapshots: &[ProviderUsageSnapshot]| {
-        TrayPresentationPlan::resolve(settings, snapshots, None).render_icon()
+fn tray_pace_tint_is_opt_in_and_follows_the_drawn_window_stage() {
+    let behind = vec![paced_snapshot("claude", paced_window(30.0, Some(300), 150))];
+    let ahead = vec![paced_snapshot("claude", paced_window(70.0, Some(300), 150))];
+    let on_track = vec![paced_snapshot("claude", paced_window(51.0, Some(300), 150))];
+    let colored = tint_settings();
+    let plain = Settings {
+        menu_bar_color_pace: false,
+        ..tint_settings()
     };
 
-    let unpaced = with_pace(None);
-    let behind_snapshots = with_pace(Some(pace("behind", -8.0)));
-    let ahead_snapshots = with_pace(Some(pace("ahead", 8.0)));
-    let on_track_snapshots = with_pace(Some(pace("on_track", 1.0)));
+    assert_eq!(tint(&colored, &behind), Some(TrayPaceColor::Behind));
+    assert_eq!(tint(&colored, &ahead), Some(TrayPaceColor::Ahead));
+    assert_eq!(tint(&colored, &on_track), None);
+    assert_eq!(tint(&plain, &ahead), None);
 
-    let normal = render(&default_settings, &unpaced);
-    let disabled = render(&default_settings, &behind_snapshots);
-    let behind = render(&colored_settings, &behind_snapshots);
-    let ahead = render(&colored_settings, &ahead_snapshots);
-    let on_track = render(&colored_settings, &on_track_snapshots);
+    for style in [
+        codexbar::settings::MenuBarIconStyle::Bars,
+        codexbar::settings::MenuBarIconStyle::Percent,
+    ] {
+        let colored = Settings {
+            menu_bar_icon_style: style,
+            ..tint_settings()
+        };
+        let plain = Settings {
+            menu_bar_color_pace: false,
+            ..colored.clone()
+        };
+        let plain_behind = render_at(&plain, &behind);
+        let tinted_behind = render_at(&colored, &behind);
+        // An on-track 51% icon differs from a 30% one only by usage, so
+        // compare tinted and untinted icons for the same usage.
+        assert_eq!(render_at(&plain, &on_track), render_at(&colored, &on_track));
+        assert_ne!(plain_behind, tinted_behind);
+        assert_ne!(
+            render_at(&colored, &ahead),
+            render_at(&plain, &ahead),
+            "{style:?} ahead"
+        );
+    }
+}
 
-    assert_eq!(normal, disabled);
-    assert_eq!(normal, on_track);
-    assert_ne!(normal, behind);
-    assert_ne!(behind, ahead);
+/// Upstream `menuBarPaceWindow` paces the selected metric window
+/// (`percentWindow`), not the session lane.
+#[test]
+fn tray_pace_tint_follows_the_selected_metric_lane() {
+    let mut snapshot = paced_snapshot("claude", paced_window(30.0, Some(300), 150));
+    snapshot.secondary = Some(paced_window(70.0, Some(10_080), 5_040));
+    let snapshots = vec![snapshot];
 
-    let percent_normal = render(
-        &Settings {
-            menu_bar_shows_percent: true,
-            ..Settings::default()
-        },
-        &unpaced,
+    let mut weekly = tint_settings();
+    weekly.set_provider_metric(ProviderId::Claude, MetricPreference::Weekly);
+    assert_eq!(tint(&weekly, &snapshots), Some(TrayPaceColor::Ahead));
+
+    let mut session = tint_settings();
+    session.set_provider_metric(ProviderId::Claude, MetricPreference::Session);
+    assert_eq!(tint(&session, &snapshots), Some(TrayPaceColor::Behind));
+
+    // Claude's Automatic metric draws the fuller lane, the weekly one here.
+    assert_eq!(
+        tint(&tint_settings(), &snapshots),
+        Some(TrayPaceColor::Ahead)
     );
-    let percent_behind = render(&colored_percent_settings, &behind_snapshots);
-    assert_ne!(percent_normal, percent_behind);
+}
+
+/// Upstream `menuBarPaceWindow` paces Codex on its weekly lane whatever
+/// metric the menu bar shows; no weekly lane means no pace.
+#[test]
+fn codex_tray_pace_tint_uses_its_weekly_lane() {
+    let mut snapshot = paced_snapshot("codex", paced_window(30.0, Some(300), 150));
+    snapshot.secondary = Some(paced_window(70.0, Some(10_080), 5_040));
+    let mut session = tint_settings();
+    session.set_provider_metric(ProviderId::Codex, MetricPreference::Session);
+    assert_eq!(tint(&session, &[snapshot]), Some(TrayPaceColor::Ahead));
+
+    let session_only = paced_snapshot("codex", paced_window(70.0, Some(300), 150));
+    assert_eq!(tint(&session, &[session_only]), None);
+}
+
+/// Upstream `UsageStore.weeklyPace` (UsageStore+HistoricalPace.swift:8-64):
+/// no pace without a length, without pace authority, with no quota left, or
+/// when it expects less than 3% use.
+#[test]
+fn tray_pace_tint_follows_the_mac_weekly_pace_guards() {
+    let colored = tint_settings();
+
+    let lengthless = vec![paced_snapshot("copilot", paced_window(70.0, None, 150))];
+    assert_eq!(tint(&colored, &lengthless), None);
+
+    let mut estimated = paced_snapshot("claude", paced_window(70.0, Some(300), 150));
+    estimated.pace_authoritative = false;
+    assert_eq!(tint(&colored, &[estimated]), None);
+
+    let exhausted = vec![paced_snapshot(
+        "claude",
+        paced_window(100.0, Some(300), 150),
+    )];
+    assert_eq!(tint(&colored, &exhausted), None);
+
+    // 5 of 300 minutes gone: 1.7% expected. 10 gone: 3.3% expected.
+    let too_early = vec![paced_snapshot("claude", paced_window(40.0, Some(300), 295))];
+    assert_eq!(tint(&colored, &too_early), None);
+    let early = vec![paced_snapshot("claude", paced_window(40.0, Some(300), 290))];
+    assert_eq!(tint(&colored, &early), Some(TrayPaceColor::Ahead));
+}
+
+/// A provider-declared icon lane (Doubao's Agent Plan) is the drawn window,
+/// so it drives the tint.
+#[test]
+fn tray_pace_tint_uses_the_icon_fallback_window() {
+    let mut snapshot = paced_snapshot("doubao", paced_window(0.0, None, 150));
+    snapshot.primary.is_informational = true;
+    snapshot
+        .extra_rate_windows
+        .push(crate::commands::NamedRateWindowSnapshot {
+            id: "doubao-agent-plan".to_string(),
+            title: "Agent Plan".to_string(),
+            window: paced_window(70.0, Some(300), 150),
+            fallback_lane: false,
+            icon_fallback: Some(codexbar::core::IconLane::Primary),
+        });
+    assert_eq!(
+        tint(&tint_settings(), &[snapshot]),
+        Some(TrayPaceColor::Ahead)
+    );
+}
+
+/// The Mac menu bar paces a regenerating window that has a length; only the
+/// card swaps its pace for the regen line.
+#[test]
+fn tray_pace_tint_scores_a_regenerating_window_with_a_length() {
+    let mut window = paced_window(70.0, Some(300), 150);
+    window.reset_regenerates = true;
+    let snapshots = vec![paced_snapshot("synthetic", window)];
+    assert_eq!(
+        tint(&tint_settings(), &snapshots),
+        Some(TrayPaceColor::Ahead)
+    );
 }
 
 #[test]
 fn stacked_tray_icon_keeps_usage_colours_when_pace_tint_is_enabled() {
-    let mut codex = fake_snapshot("codex", "Codex", 50.0);
-    codex.pace = Some(crate::commands::PaceSnapshot {
-        stage: "far_ahead".to_string(),
-        delta_percent: 20.0,
-        will_last_to_reset: false,
-        eta_seconds: None,
-        expected_used_percent: 30.0,
-        actual_used_percent: 50.0,
-        monthly_limit_block: None,
-    });
-    let claude = fake_snapshot("claude", "Claude", 20.0);
-    let snapshots = vec![codex.clone(), claude.clone()];
-    let unpaced = vec![
-        ProviderUsageSnapshot {
-            pace: None,
-            ..codex
-        },
-        claude,
-    ];
+    let mut codex = paced_snapshot("codex", paced_window(50.0, Some(300), 150));
+    codex.secondary = Some(paced_window(90.0, Some(10_080), 5_040));
+    let claude = paced_snapshot("claude", paced_window(80.0, Some(300), 150));
+    let snapshots = vec![codex, claude];
+    // Both providers are ahead of pace, so the single icon would tint.
+    assert_eq!(
+        tint(&tint_settings(), &snapshots),
+        Some(TrayPaceColor::Ahead)
+    );
     let stacked = |color_pace: bool| Settings {
         tray_icon_mode: TrayIconMode::Stacked,
         menu_bar_color_pace: color_pace,
-        ..Settings::default()
+        ..tint_settings()
     };
 
     let stacked_settings = stacked(true);
-    let plan = TrayPresentationPlan::resolve(&stacked_settings, &snapshots, None);
+    let plan = TrayPresentationPlan::resolve_at(&stacked_settings, &snapshots, None, pace_now());
     assert!(matches!(plan.icon, TrayIconPlan::Stacked { .. }));
     assert_eq!(plan.icon_pace, None);
-    let unpaced_settings = stacked(false);
+    assert_eq!(plan.render_icon(), render_at(&stacked(false), &snapshots));
+}
+
+#[test]
+fn icon_style_not_the_legacy_percent_flag_picks_the_renderer() {
+    let snapshots = vec![fake_snapshot("codex", "Codex", 30.0)];
+    let bars = Settings {
+        menu_bar_icon_style: codexbar::settings::MenuBarIconStyle::Bars,
+        menu_bar_shows_percent: true,
+        show_as_used: true,
+        ..Settings::default()
+    };
+    assert!(matches!(
+        TrayPresentationPlan::resolve(&bars, &snapshots, None).icon,
+        TrayIconPlan::Bars { .. }
+    ));
+    let percent = Settings {
+        menu_bar_icon_style: codexbar::settings::MenuBarIconStyle::Percent,
+        menu_bar_shows_percent: false,
+        show_as_used: true,
+        ..Settings::default()
+    };
+    assert_eq!(
+        TrayPresentationPlan::resolve(&percent, &snapshots, None).icon,
+        TrayIconPlan::Percent {
+            percent: 30.0,
+            has_error: false,
+            provider_tint: None,
+        }
+    );
+
+    // The two styles draw different tray pixels for the same usage.
+    let (bar_pixels, bar_w, bar_h) =
+        TrayPresentationPlan::resolve(&bars, &snapshots, None).render_icon();
+    let (percent_pixels, percent_w, percent_h) =
+        TrayPresentationPlan::resolve(&percent, &snapshots, None).render_icon();
+    assert_eq!((bar_w, bar_h), (percent_w, percent_h));
+    let changed = bar_pixels
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(percent_pixels.as_chunks::<4>().0.iter())
+        .filter(|(a, b)| a != b)
+        .count();
+    assert!(
+        changed > 0,
+        "bars and percent icons rendered identical pixels"
+    );
+}
+
+#[test]
+fn retired_minimal_display_mode_no_longer_forces_most_used_provider() {
+    // After the one-shot fold, turning "Show most-used provider" off must win.
+    let settings = Settings {
+        tray_icon_mode: TrayIconMode::Single,
+        menu_bar_display_mode: "minimal".to_string(),
+        menu_bar_shows_highest_usage: false,
+        show_as_used: true,
+        ..Settings::default()
+    };
+    let snapshots = vec![
+        fake_snapshot("codex", "Codex", 30.0),
+        fake_snapshot("claude", "Claude", 72.0),
+    ];
+    let plan = TrayPresentationPlan::resolve(&settings, &snapshots, None);
+    assert_eq!(plan.status_rows[0].snapshot.provider_id, "codex");
+}
+
+#[test]
+fn stacked_bars_style_plans_the_same_windows_as_bars_as_equal_rows() {
+    let snapshots = vec![fake_snapshot_with(
+        "codex",
+        "Codex",
+        30.0,
+        Some(65.0),
+        None,
+        None,
+    )];
+    let bars_settings = Settings {
+        menu_bar_icon_style: codexbar::settings::MenuBarIconStyle::Bars,
+        show_as_used: true,
+        ..Settings::default()
+    };
+    let stacked_settings = Settings {
+        menu_bar_icon_style: codexbar::settings::MenuBarIconStyle::StackedBars,
+        show_as_used: true,
+        ..Settings::default()
+    };
+
+    let TrayIconPlan::Bars {
+        primary_percent,
+        secondary_percent,
+        has_error,
+        provider_tint,
+    } = TrayPresentationPlan::resolve(&bars_settings, &snapshots, None).icon
+    else {
+        panic!("bars style should plan Bars");
+    };
+    let stacked = TrayPresentationPlan::resolve(&stacked_settings, &snapshots, None);
+    assert_eq!(
+        stacked.icon,
+        TrayIconPlan::StackedBars {
+            primary_percent,
+            secondary_percent,
+            has_error,
+            provider_tint,
+        }
+    );
+    assert_eq!(
+        stacked.render_icon(),
+        render_stacked_bars_icon_rgba_with_pace(
+            primary_percent,
+            secondary_percent,
+            has_error,
+            None
+        )
+    );
+    assert_ne!(
+        stacked.render_icon(),
+        TrayPresentationPlan::resolve(&bars_settings, &snapshots, None).render_icon()
+    );
+}
+
+#[test]
+fn stacked_bars_style_with_one_window_draws_the_bars_fallback() {
+    let snapshots = vec![fake_snapshot("codex", "Codex", 30.0)];
+    let bars_settings = Settings {
+        menu_bar_icon_style: codexbar::settings::MenuBarIconStyle::Bars,
+        show_as_used: true,
+        ..Settings::default()
+    };
+    let stacked_settings = Settings {
+        menu_bar_icon_style: codexbar::settings::MenuBarIconStyle::StackedBars,
+        ..bars_settings.clone()
+    };
+    let bars = TrayPresentationPlan::resolve(&bars_settings, &snapshots, None);
+    let stacked = TrayPresentationPlan::resolve(&stacked_settings, &snapshots, None);
+    assert!(matches!(
+        stacked.icon,
+        TrayIconPlan::StackedBars {
+            secondary_percent: None,
+            ..
+        }
+    ));
+    assert_eq!(stacked.render_icon(), bars.render_icon());
+}
+
+#[test]
+fn stacked_bars_style_keeps_the_pace_tint_on_both_rows() {
+    let settings = Settings {
+        menu_bar_icon_style: codexbar::settings::MenuBarIconStyle::StackedBars,
+        ..tint_settings()
+    };
+    let snapshots = vec![paced_snapshot(
+        "synthetic",
+        paced_window(70.0, Some(300), 150),
+    )];
+    let plan = TrayPresentationPlan::resolve_at(&settings, &snapshots, None, pace_now());
+    assert_eq!(plan.icon_pace, Some(TrayPaceColor::Ahead));
+
+    let TrayIconPlan::StackedBars {
+        primary_percent,
+        secondary_percent,
+        has_error,
+        provider_tint: None,
+    } = plan.icon
+    else {
+        panic!("stacked bars style should plan StackedBars");
+    };
     assert_eq!(
         plan.render_icon(),
-        TrayPresentationPlan::resolve(&unpaced_settings, &unpaced, None).render_icon()
+        render_stacked_bars_icon_rgba_with_pace(
+            primary_percent,
+            secondary_percent,
+            has_error,
+            Some(TrayPaceColor::Ahead),
+        )
     );
+}
+
+const CODEX_BRAND: (u8, u8, u8) = (0x49, 0xA3, 0xB0);
+const CLAUDE_BRAND: (u8, u8, u8) = (0xCC, 0x7C, 0x5E);
+
+fn color_by_provider_settings(style: codexbar::settings::MenuBarIconStyle) -> Settings {
+    Settings {
+        menu_bar_color_by_provider: true,
+        tray_icon_mode: TrayIconMode::Single,
+        menu_bar_icon_style: style,
+        show_as_used: true,
+        ..Settings::default()
+    }
+}
+
+fn pixel_at(rgba: &[u8], x: u32, y: u32) -> [u8; 4] {
+    let index = ((y * codexbar::tray::TRAY_ICON_SIZE + x) * 4) as usize;
+    [
+        rgba[index],
+        rgba[index + 1],
+        rgba[index + 2],
+        rgba[index + 3],
+    ]
+}
+
+#[test]
+fn color_by_provider_defaults_off_and_keeps_usage_colors() {
+    assert!(!Settings::default().menu_bar_color_by_provider);
+    let snapshots = vec![fake_snapshot("codex", "Codex", 30.0)];
+    let plain = Settings {
+        tray_icon_mode: TrayIconMode::Single,
+        show_as_used: true,
+        ..Settings::default()
+    };
+    let plan = TrayPresentationPlan::resolve(&plain, &snapshots, None);
+    assert!(matches!(
+        plan.icon,
+        TrayIconPlan::Bars {
+            provider_tint: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn color_by_provider_tints_single_meter_with_brand_color() {
+    let snapshots = vec![fake_snapshot("codex", "Codex", 30.0)];
+    let settings = color_by_provider_settings(codexbar::settings::MenuBarIconStyle::Bars);
+    let plan = TrayPresentationPlan::resolve(&settings, &snapshots, None);
+    assert!(matches!(
+        plan.icon,
+        TrayIconPlan::Bars {
+            provider_tint: Some(CODEX_BRAND),
+            ..
+        }
+    ));
+    // 30% of the single meter fills x 4..11; x=8 sits in the fill.
+    let (rgba, _, _) = plan.render_icon();
+    assert_eq!(
+        pixel_at(&rgba, 8, 16),
+        [CODEX_BRAND.0, CODEX_BRAND.1, CODEX_BRAND.2, 255]
+    );
+}
+
+#[test]
+fn color_by_provider_tints_percent_icon_text() {
+    let snapshots = vec![fake_snapshot("codex", "Codex", 30.0)];
+    let settings = color_by_provider_settings(codexbar::settings::MenuBarIconStyle::Percent);
+    let plan = TrayPresentationPlan::resolve(&settings, &snapshots, None);
+    assert!(matches!(
+        plan.icon,
+        TrayIconPlan::Percent {
+            provider_tint: Some(CODEX_BRAND),
+            ..
+        }
+    ));
+    let (rgba, _, _) = plan.render_icon();
+    let tinted = rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|px| px[..3] == [CODEX_BRAND.0, CODEX_BRAND.1, CODEX_BRAND.2])
+        .count();
+    assert!(tinted > 0, "percent glyphs should use the brand color");
+}
+
+#[test]
+fn color_by_provider_uses_the_effective_accent_override() {
+    let snapshots = vec![fake_snapshot("codex", "Codex", 30.0)];
+    let mut settings = color_by_provider_settings(codexbar::settings::MenuBarIconStyle::Bars);
+    settings.set_accent_color(ProviderId::Codex, Some("#FF0000"));
+    let plan = TrayPresentationPlan::resolve(&settings, &snapshots, None);
+    assert!(matches!(
+        plan.icon,
+        TrayIconPlan::Bars {
+            provider_tint: Some((255, 0, 0)),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn color_by_provider_malformed_override_gives_no_tint() {
+    let snapshots = vec![fake_snapshot("codex", "Codex", 30.0)];
+    let mut settings = color_by_provider_settings(codexbar::settings::MenuBarIconStyle::Bars);
+    settings.set_accent_color(ProviderId::Codex, Some("not-a-color"));
+    let plan = TrayPresentationPlan::resolve(&settings, &snapshots, None);
+    assert!(matches!(
+        plan.icon,
+        TrayIconPlan::Bars {
+            provider_tint: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn color_by_provider_colors_each_stacked_row_by_its_provider() {
+    let snapshots = vec![
+        fake_snapshot("codex", "Codex", 30.0),
+        fake_snapshot("claude", "Claude", 72.0),
+    ];
+    let settings = Settings {
+        menu_bar_color_by_provider: true,
+        tray_icon_mode: TrayIconMode::Stacked,
+        stacked_tray_top_provider: Some("codex".to_string()),
+        stacked_tray_bottom_provider: Some("claude".to_string()),
+        show_as_used: true,
+        ..Settings::default()
+    };
+    let plan = TrayPresentationPlan::resolve(&settings, &snapshots, None);
+    assert!(matches!(
+        plan.icon,
+        TrayIconPlan::Stacked {
+            top_tint: Some(CODEX_BRAND),
+            bottom_tint: Some(CLAUDE_BRAND),
+            ..
+        }
+    ));
+    let (rgba, width, _) = plan.render_icon();
+    let pixel = |x: u32, y: u32| {
+        let index = ((y * width + x) * 4) as usize;
+        [
+            rgba[index],
+            rgba[index + 1],
+            rgba[index + 2],
+            rgba[index + 3],
+        ]
+    };
+    // Top row covers y 6..14, bottom row y 18..26 of the stacked icon.
+    assert_eq!(
+        pixel(8, 8),
+        [CODEX_BRAND.0, CODEX_BRAND.1, CODEX_BRAND.2, 255]
+    );
+    assert_eq!(
+        pixel(8, 20),
+        [CLAUDE_BRAND.0, CLAUDE_BRAND.1, CLAUDE_BRAND.2, 255]
+    );
+}
+
+#[test]
+fn parse_hex_rgb_accepts_only_six_digit_hex() {
+    assert_eq!(parse_hex_rgb("#49A3B0"), Some(CODEX_BRAND));
+    assert_eq!(parse_hex_rgb("49a3b0"), Some(CODEX_BRAND));
+    assert_eq!(parse_hex_rgb(" #FF5733 "), Some((255, 87, 51)));
+    assert_eq!(parse_hex_rgb("#49A3"), None);
+    assert_eq!(parse_hex_rgb("#GG0000"), None);
+    assert_eq!(parse_hex_rgb(""), None);
+}
+
+#[test]
+fn color_by_provider_tints_both_stacked_bars_rows() {
+    let snapshots = vec![fake_snapshot_with(
+        "codex",
+        "Codex",
+        30.0,
+        Some(65.0),
+        None,
+        None,
+    )];
+    let settings = color_by_provider_settings(codexbar::settings::MenuBarIconStyle::StackedBars);
+    let plan = TrayPresentationPlan::resolve(&settings, &snapshots, None);
+    assert!(matches!(
+        plan.icon,
+        TrayIconPlan::StackedBars {
+            provider_tint: Some(CODEX_BRAND),
+            ..
+        }
+    ));
+    let (rgba, _, _) = plan.render_icon();
+    assert_eq!(
+        pixel_at(&rgba, 8, 8),
+        [CODEX_BRAND.0, CODEX_BRAND.1, CODEX_BRAND.2, 255]
+    );
+    assert_eq!(
+        pixel_at(&rgba, 8, 20),
+        [CODEX_BRAND.0, CODEX_BRAND.1, CODEX_BRAND.2, 255]
+    );
+}
+
+#[test]
+fn pick_tray_provider_highest_picks_max_primary() {
+    let a = fake_snapshot("codex", "Codex", 30.0);
+    let b = fake_snapshot("claude", "Claude", 72.5);
+    let c = fake_snapshot("gemini", "Gemini", 50.0);
+    let refs: Vec<&ProviderUsageSnapshot> = vec![&a, &b, &c];
+    let picked = pick_tray_provider(&refs, /* prefer_highest = */ true)
+        .expect("highest mode should pick a provider");
+    assert_eq!(picked.provider_id, "claude");
+}
+
+#[test]
+fn pick_tray_provider_first_preserves_catalog_order() {
+    let a = fake_snapshot("codex", "Codex", 30.0);
+    let b = fake_snapshot("claude", "Claude", 72.5);
+    let refs: Vec<&ProviderUsageSnapshot> = vec![&a, &b];
+    let picked = pick_tray_provider(&refs, /* prefer_highest = */ false)
+        .expect("non-highest mode should still pick the first entry");
+    assert_eq!(picked.provider_id, "codex");
+}
+
+#[test]
+fn pick_tray_provider_none_when_empty() {
+    let refs: Vec<&ProviderUsageSnapshot> = vec![];
+    assert!(pick_tray_provider(&refs, true).is_none());
+    assert!(pick_tray_provider(&refs, false).is_none());
 }

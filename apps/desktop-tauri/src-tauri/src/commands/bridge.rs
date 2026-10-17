@@ -1,3 +1,6 @@
+mod openai_live;
+#[cfg(test)]
+mod openai_live_tests;
 mod openai_usage;
 #[cfg(test)]
 mod openai_usage_tests;
@@ -5,10 +8,15 @@ pub(crate) mod pace;
 mod quota_block;
 mod settings_snapshot;
 mod status;
+mod throughput;
+#[cfg(test)]
+mod throughput_tests;
+pub(crate) use openai_live::{ModelRateLimitSnapshot, OrgRateLimitsSnapshot};
 pub(crate) use openai_usage::OpenAiApiUsageSnapshot;
 pub use quota_block::MonthlyLimitBlockSnapshot;
 pub use settings_snapshot::*;
 pub(crate) use status::{compact_tray_status_label, friendly_provider_error};
+pub(crate) use throughput::ProviderThroughputSnapshot;
 
 use super::*;
 use codexbar::core::BlockedWindows;
@@ -35,6 +43,12 @@ pub struct RateWindowSnapshot {
     /// `reset_description` is a detail line (for example spend amounts), not reset wording.
     #[serde(default)]
     pub description_is_detail: bool,
+    /// The reset is the next quota regeneration; the card says "Regenerates in".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reset_regenerates: bool,
+    /// The window feeds the tray and float bar only; the card draws no row for it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden_on_card: bool,
     #[serde(default)]
     pub reserve_percent: Option<f64>,
     #[serde(default)]
@@ -43,6 +57,8 @@ pub struct RateWindowSnapshot {
     pub reserve_will_last_to_reset: bool,
     #[serde(default)]
     pub reserve_eta_seconds: Option<f64>,
+    #[serde(default)]
+    pub pace: Option<pace::WindowPaceSnapshot>,
     /// Set while a longer exhausted pool (Kimi's monthly membership) blocks
     /// this window; presentation only, the raw percentages above stay as is.
     #[serde(default)]
@@ -95,8 +111,11 @@ impl RateWindowSnapshot {
             reserve_description: None,
             reserve_will_last_to_reset: false,
             reserve_eta_seconds: None,
+            pace: None,
             monthly_limit_block: None,
             description_is_detail: rw.description_is_detail,
+            reset_regenerates: rw.reset_regenerates,
+            hidden_on_card: rw.hidden_on_card,
         }
     }
 
@@ -156,6 +175,12 @@ pub struct CostSnapshotBridge {
     pub daily: Vec<CostDailyPointBridge>,
     #[serde(default)]
     pub always_visible: bool,
+    /// The primary meter already shows this cap, so the cost block omits its bar.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub folded_into_primary: bool,
+    /// Provider-owned cost-block title as a locale key name; absent keeps the shared title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_key: Option<String>,
 }
 
 fn default_currency() -> String {
@@ -266,6 +291,11 @@ pub struct SubscriptionMetadataSnapshot {
     pub starts_at: Option<String>,
     pub expires_at: Option<String>,
     pub renews_at: Option<String>,
+    /// Date-only values are UTC midnight and must be formatted in UTC.
+    #[serde(default)]
+    pub renews_at_is_date_only: bool,
+    #[serde(default)]
+    pub expires_at_is_date_only: bool,
 }
 
 /// Display-only provider inventory. Redemption identifiers never cross the
@@ -316,6 +346,10 @@ pub struct ProviderUsageSnapshot {
     pub secondary: Option<RateWindowSnapshot>,
     #[serde(default)]
     pub secondary_label: Option<String>,
+    /// Locale key that names the secondary lane instead of `secondary_label`
+    /// (provider-owned, see `UsageSnapshot::secondary_label_key`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary_label_key: Option<String>,
     #[serde(default)]
     pub model_specific: Option<RateWindowSnapshot>,
     #[serde(default)]
@@ -332,6 +366,10 @@ pub struct ProviderUsageSnapshot {
     pub plan_name: Option<String>,
     #[serde(default)]
     pub account_email: Option<String>,
+    /// Header-only label of the active token account (upstream shows it when
+    /// the provider reports no email). Never used for history or warning keys.
+    #[serde(default)]
+    pub account_label: Option<String>,
     #[serde(default)]
     pub subscription: Option<SubscriptionMetadataSnapshot>,
     #[serde(default = "default_source_label")]
@@ -347,6 +385,11 @@ pub struct ProviderUsageSnapshot {
     pub error_state: codexbar::core::ProviderStateKind,
     #[serde(default)]
     pub pace: Option<PaceSnapshot>,
+    /// Whether the fetch allows pace (upstream `allowsPace(dataConfidence:)`).
+    /// The tray scores its pace tint at presentation time, so it needs this
+    /// beside the windows. Tray-only; not sent to the frontend.
+    #[serde(default = "default_pace_authoritative", skip_serializing)]
+    pub pace_authoritative: bool,
     #[serde(default)]
     pub account_organization: Option<String>,
     #[serde(default)]
@@ -358,6 +401,9 @@ pub struct ProviderUsageSnapshot {
     /// Per-day OpenAI Admin API history for the daily usage chart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_ai_api_usage: Option<OpenAiApiUsageSnapshot>,
+    /// Last-hour Tokens/min grid (OpenAI Admin API 1-minute buckets).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub throughput: Option<ProviderThroughputSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_equivalent_forecast: Option<SessionEquivalentForecastSnapshot>,
     /// Recorded remaining-quota burndown for the selected window
@@ -372,6 +418,10 @@ fn default_display_name() -> String {
 
 fn default_source_label() -> String {
     "seed".to_string()
+}
+
+fn default_pace_authoritative() -> bool {
+    true
 }
 
 fn default_error_state() -> codexbar::core::ProviderStateKind {
@@ -414,6 +464,25 @@ impl ProviderUsageSnapshot {
         metadata: &ProviderMetadata,
         result: &ProviderFetchResult,
         token_account_id: Option<uuid::Uuid>,
+        pace_work_days: Option<u8>,
+    ) -> Self {
+        Self::from_fetch_result_at(
+            id,
+            metadata,
+            result,
+            token_account_id,
+            pace_work_days,
+            chrono::Utc::now(),
+        )
+    }
+
+    pub(super) fn from_fetch_result_at(
+        id: ProviderId,
+        metadata: &ProviderMetadata,
+        result: &ProviderFetchResult,
+        token_account_id: Option<uuid::Uuid>,
+        pace_work_days: Option<u8>,
+        now: chrono::DateTime<chrono::Utc>,
     ) -> Self {
         let usage = &result.usage;
         let allows_pace = result.pace_authoritative;
@@ -426,13 +495,22 @@ impl ProviderUsageSnapshot {
         } else {
             Some(&usage.primary)
         };
+        // Upstream `UsageStore.weeklyPace`: a window with a length expands a
+        // monthly sentinel to the real calendar cycle before scoring, so the
+        // tray agrees with the card.
         let primary_pace = allows_pace.then(|| {
-            primary_pace_window
-                .and_then(|window| codexbar::core::UsagePace::weekly(window, None, 10080))
+            primary_pace_window.and_then(|window| {
+                let pace_window = if window.window_minutes.is_some() {
+                    id.pace_capability().resolved_reset_window_for_pace(window)
+                } else {
+                    window.clone()
+                };
+                codexbar::core::UsagePace::weekly(&pace_window, Some(now), 10080, pace_work_days)
+            })
         });
         let primary_pace = primary_pace.flatten();
 
-        let blocked = BlockedWindows::evaluate(id, usage, chrono::Utc::now());
+        let blocked = BlockedWindows::evaluate(id, usage, now);
         let pace = primary_pace.as_ref().map(|p| PaceSnapshot {
             stage: pace::stage_str(p.stage).to_string(),
             delta_percent: p.delta_percent,
@@ -443,21 +521,54 @@ impl ProviderUsageSnapshot {
             monthly_limit_block: MonthlyLimitBlockSnapshot::for_pace(usage, &blocked),
         });
 
-        // Compute pace for secondary window (weekly) to derive reserve info
+        // Pace of the secondary lane, which also derives the row's reserve.
         let secondary_pace = allows_pace.then(|| {
-            usage
-                .secondary
-                .as_ref()
-                .and_then(|sw| codexbar::core::UsagePace::weekly(sw, None, 10080))
+            usage.secondary.as_ref().and_then(|sw| {
+                pace::lane_usage_pace(
+                    id,
+                    pace::PaceLane::Card,
+                    sw,
+                    pace::WEEKLY_FALLBACK_MINUTES,
+                    now,
+                    pace_work_days,
+                )
+                .map(|(pace, _)| pace)
+            })
         });
         let secondary_pace = secondary_pace.flatten();
 
-        let primary_snap = RateWindowSnapshot::from_rate_window(&usage.primary)
-            .with_quota_block(blocked.primary, &blocked);
+        let lane = |window: &RateWindow,
+                    is_blocked: bool,
+                    default_minutes: u32,
+                    pace_lane: pace::PaceLane| RateWindowSnapshot {
+            pace: allows_pace
+                .then(|| {
+                    pace::WindowPaceSnapshot::for_lane(
+                        id,
+                        pace_lane,
+                        window,
+                        default_minutes,
+                        now,
+                        pace_work_days,
+                    )
+                })
+                .flatten(),
+            ..RateWindowSnapshot::from_rate_window(window).with_quota_block(is_blocked, &blocked)
+        };
+        let primary_snap = lane(
+            &usage.primary,
+            blocked.primary,
+            pace::SESSION_FALLBACK_MINUTES,
+            pace::PaceLane::Card,
+        );
 
         let secondary_snap = usage.secondary.as_ref().map(|sw| {
-            let mut s = RateWindowSnapshot::from_rate_window(sw)
-                .with_quota_block(blocked.secondary, &blocked);
+            let mut s = lane(
+                sw,
+                blocked.secondary,
+                pace::WEEKLY_FALLBACK_MINUTES,
+                pace::PaceLane::Card,
+            );
             if let Some(ref p) = secondary_pace {
                 s = s.with_pace_reserve(p);
             }
@@ -499,12 +610,26 @@ impl ProviderUsageSnapshot {
                     .clone()
                     .unwrap_or_else(|| metadata.weekly_label.to_string())
             }),
+            secondary_label_key: usage
+                .secondary
+                .as_ref()
+                .and(usage.secondary_label_key)
+                .map(|key| key.name().to_string()),
             model_specific: usage.model_specific.as_ref().map(|w| {
-                RateWindowSnapshot::from_rate_window(w)
-                    .with_quota_block(blocked.model_specific, &blocked)
+                lane(
+                    w,
+                    blocked.model_specific,
+                    pace::WEEKLY_FALLBACK_MINUTES,
+                    pace::PaceLane::Card,
+                )
             }),
             tertiary: usage.tertiary.as_ref().map(|w| {
-                RateWindowSnapshot::from_rate_window(w).with_quota_block(blocked.tertiary, &blocked)
+                lane(
+                    w,
+                    blocked.tertiary,
+                    pace::WEEKLY_FALLBACK_MINUTES,
+                    pace::PaceLane::Card,
+                )
             }),
             // F5 (upstream 0.48.0): label the tertiary lane by its duration cadence
             // so surfaces (MenuCard, CLI, tray) can show "Monthly" instead of the
@@ -524,8 +649,12 @@ impl ProviderUsageSnapshot {
                 .map(|(extra, &is_blocked)| NamedRateWindowSnapshot {
                     id: extra.id.clone(),
                     title: extra.title.clone(),
-                    window: RateWindowSnapshot::from_rate_window(&extra.window)
-                        .with_quota_block(is_blocked, &blocked),
+                    window: lane(
+                        &extra.window,
+                        is_blocked,
+                        pace::WEEKLY_FALLBACK_MINUTES,
+                        pace::PaceLane::Extra,
+                    ),
                     fallback_lane: extra.fallback_lane,
                     icon_fallback: extra.icon_fallback,
                 })
@@ -580,14 +709,19 @@ impl ProviderUsageSnapshot {
                     })
                     .collect(),
                 always_visible: c.always_visible,
+                folded_into_primary: c.folded_into_primary,
+                title_key: c.card_title_key.map(|key| key.name().to_string()),
             }),
             plan_name: usage.login_method.clone(),
             account_email: usage.account_email.clone(),
+            account_label: None,
             subscription: usage.subscription.as_ref().map(|subscription| {
                 SubscriptionMetadataSnapshot {
                     starts_at: subscription.starts_at.map(|date| date.to_rfc3339()),
                     expires_at: subscription.expires_at.map(|date| date.to_rfc3339()),
                     renews_at: subscription.renews_at.map(|date| date.to_rfc3339()),
+                    renews_at_is_date_only: subscription.renews_at_is_date_only,
+                    expires_at_is_date_only: subscription.expires_at_is_date_only,
                 }
             }),
             source_label: result.source_label.clone(),
@@ -596,11 +730,13 @@ impl ProviderUsageSnapshot {
             error: None,
             error_state: codexbar::core::ProviderStateKind::Ready,
             pace,
+            pace_authoritative: allows_pace,
             account_organization: usage.account_organization.clone(),
             tray_status_label: None,
             fetch_duration_ms: None,
             wayfinder_usage: result.wayfinder_usage.clone(),
             open_ai_api_usage: result.open_ai_api_usage.as_ref().map(Into::into),
+            throughput: result.throughput.as_ref().map(Into::into),
             session_equivalent_forecast,
             quota_burndown,
         }

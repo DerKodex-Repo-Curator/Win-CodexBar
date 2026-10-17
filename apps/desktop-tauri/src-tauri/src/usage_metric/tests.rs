@@ -389,6 +389,8 @@ fn mistral_monthly_plan_never_selects_a_spend_window() {
         formatted_balance: None,
         daily: Vec::new(),
         always_visible: false,
+        folded_into_primary: false,
+        title_key: None,
     });
     let settings = metric_settings(ProviderId::Mistral, MetricPreference::MonthlyPlan);
 

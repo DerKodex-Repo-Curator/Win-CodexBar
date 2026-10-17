@@ -164,7 +164,7 @@ pub struct AppState {
     /// One-shot permission for frontend layout code to reveal a newly opened
     /// flyout, carrying whether the revealed window may take focus.
     pub flyout_reveal_pending: Option<Activation>,
-    /// Active while a user gesture (resize drag, HTML5 drag-reorder) is
+    /// Active while a user gesture (the provider tab HTML5 drag-reorder) is
     /// running a Win32 modal loop that transiently steals focus from the
     /// WebView2 child. `(began, until)` — `until` is the hard expiry;
     /// `began` lets a genuine refocus clear the guard early once the
@@ -172,6 +172,8 @@ pub struct AppState {
     pub gesture_blur_guard: Option<(std::time::Instant, std::time::Instant)>,
     /// Opt-in exact-session resume arms; intentionally discarded on restart.
     pub auto_resume: crate::auto_resume::AutoResumeState,
+    /// Provider service status from the status poller.
+    pub provider_statuses: crate::status_poller::ProviderStatusCache,
 }
 
 impl Default for AppState {
@@ -223,6 +225,7 @@ impl AppState {
             flyout_reveal_pending: None,
             gesture_blur_guard: None,
             auto_resume: crate::auto_resume::AutoResumeState::default(),
+            provider_statuses: Default::default(),
         }
     }
 
@@ -266,9 +269,6 @@ impl AppState {
         self.flyout_reveal_pending.take()
     }
 
-    /// Arm the gesture blur guard for 15s. Called when the frontend reports
-    /// a resize-grip press or a drag-reorder mousedown is about to start a
-    /// Win32/OLE modal loop that will transiently blur the window.
     pub fn begin_gesture_blur_guard(&mut self, now: std::time::Instant) {
         self.gesture_blur_guard = Some((now, now + std::time::Duration::from_secs(15)));
     }

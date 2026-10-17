@@ -88,6 +88,21 @@ pub(crate) fn build_fetch_context(
         match cookie_source {
             _ if manual_cookie_wins => (SourceMode::Web, stored_cookie.clone(), false),
             _ if active_token_env.is_some() => (SourceMode::OAuth, None, false),
+            // Providers that pick their own API-key or cookie lane (Command
+            // Code) keep Auto and API for every cookie source, so a configured
+            // key is used without touching a browser. `off` marks the cookie
+            // lane unavailable; `manual`/`auto` pass a stored header through.
+            _ if provider.owns_credential_lane_routing()
+                && matches!(usage_source, SourceMode::Auto | SourceMode::OAuth) =>
+            {
+                let cookie_off = cookie_source == "off";
+                let cookie_header = if cookie_off {
+                    None
+                } else {
+                    active_token_cookie.clone().or(stored_cookie)
+                };
+                (usage_source, cookie_header, cookie_off)
+            }
             // Opt-in web providers keep their default credential lane
             // unless the usage source is explicitly Web; a stored or
             // browser cookie must not turn Auto into Web.
@@ -115,10 +130,17 @@ pub(crate) fn build_fetch_context(
             "off" if provider_uses_oauth_without_cookies(id, usage_source) => {
                 (SourceMode::OAuth, None, false)
             }
-            "off"
-                if (has_kimi_code_api_key || has_opencodego_api_key)
-                    && usage_source == SourceMode::Auto =>
-            {
+            // OpenCode Go discovers browser sessions inside the provider; the
+            // missing-cookie flag tells it that Off forbids that discovery.
+            "off" if id == ProviderId::OpenCodeGo => {
+                let source_mode = if has_opencodego_api_key && usage_source == SourceMode::Auto {
+                    SourceMode::Auto
+                } else {
+                    SourceMode::Cli
+                };
+                (source_mode, None, true)
+            }
+            "off" if has_kimi_code_api_key && usage_source == SourceMode::Auto => {
                 (SourceMode::Auto, None, false)
             }
             // Cookie-off must never scrape browser cookies (Droid/Factory). Map to
@@ -182,10 +204,14 @@ pub(crate) fn build_fetch_context(
         && !provider.cookie_source_scopes_session_only()
         && !cookies_only_enrich_usage
     {
-        if cookie_header
-            .as_deref()
-            .map(str::trim)
-            .is_none_or(|s| s.is_empty())
+        // Providers that own browser cookie resolution try each browser's
+        // session themselves; a pre-resolved first-browser header would pin
+        // them to that browser.
+        if !defer_provider_browser_cookie_lookup
+            && cookie_header
+                .as_deref()
+                .map(str::trim)
+                .is_none_or(|s| s.is_empty())
         {
             cookie_header = browser_cookie_header(id, settings);
         }
@@ -266,6 +292,7 @@ pub(crate) fn build_fetch_context(
                 && token_account_kind == Some(codexbar::core::TokenAccountKind::ApiKey)),
         browser_cookie_import,
         optional_details_enabled: settings.optional_details_enabled(id),
+        live_usage_enabled: settings.live_usage_enabled(id),
         ..FetchContext::default()
     }
 }

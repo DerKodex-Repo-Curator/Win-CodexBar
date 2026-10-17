@@ -14,16 +14,15 @@ use reqwest::Client;
 use serde_json::Value;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
-use crate::providers::browser_cookie_header;
+use crate::providers::browser_cookie_sessions;
 
 const BASE_URL: &str = "https://app.notion.com";
 const GET_SPACES_URL: &str = "https://app.notion.com/api/v3/getSpaces";
 const RATE_LIMIT_URL: &str = "https://app.notion.com/api/v3/getCreditRateLimitStatus";
-const DASHBOARD_URL: &str = "https://app.notion.com/";
-const STATUS_PAGE_URL: &str = "https://status.notion.so";
+pub(crate) const DASHBOARD_URL: &str = "https://app.notion.com/";
 const SESSION_COOKIE_NAME: &str = "token_v2";
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
     AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
@@ -41,9 +40,13 @@ const COOKIE_DOMAINS: &[&str] = &[
 /// with the real cycle length ending at `resets_at` (upstream `ProviderPaceCapability`).
 const MONTHLY_WINDOW_SENTINEL_MINUTES: u32 = 30 * 24 * 60;
 
-pub struct NotionProvider {
-    metadata: ProviderMetadata,
-}
+/// Reset-window pace (upstream `NotionProviderDescriptor.pace`, v0.70.0):
+/// `.calendarMonthResetWindow`.
+pub(crate) const PACE_CAPABILITY: crate::core::ProviderPaceCapability =
+    crate::core::ProviderPaceCapability::CALENDAR_MONTH_RESET_WINDOW;
+
+#[derive(Default)]
+pub struct NotionProvider;
 
 #[derive(Debug, Clone)]
 struct NotionWorkspace {
@@ -131,41 +134,41 @@ impl CreditRateLimitStatus {
 
 impl NotionProvider {
     pub fn new() -> Self {
-        Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Notion,
-                display_name: "Notion AI",
-                session_label: "Rolling",
-                weekly_label: "Monthly",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some(DASHBOARD_URL),
-                status_page_url: Some(STATUS_PAGE_URL),
-                tertiary_label_key: None,
-            },
-        }
+        Self
     }
 
-    fn resolve_cookie_header(ctx: &FetchContext) -> Result<String, ProviderError> {
-        if let Some(raw) = ctx.manual_cookie_header.as_deref()
-            && let Some(header) = normalize_cookie_header(raw)
-        {
-            return Ok(header);
-        }
-        browser_cookie_header(COOKIE_DOMAINS)
-            .and_then(|header| normalize_cookie_header(&header).ok_or(ProviderError::NoCookies))
-    }
-
+    /// A usable pasted header is the only session tried. Otherwise each
+    /// browser's session is tried in turn, moving on only after a 401.
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
-        let cookie_header = Self::resolve_cookie_header(ctx)?;
         let client = crate::core::credentialed_http_client_builder()
             .timeout(std::time::Duration::from_secs(ctx.web_timeout.max(1)))
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
+        if let Some(raw) = ctx.manual_cookie_header.as_deref()
+            && let Some(header) = normalize_cookie_header(raw)
+        {
+            return Self::fetch_with_cookie(ctx, &client, &header).await;
+        }
+        let mut sessions = browser_cookie_sessions(ctx, COOKIE_DOMAINS);
+        let mut rejected = None;
+        for header in sessions.by_ref() {
+            let Some(header) = normalize_cookie_header(&header) else {
+                continue;
+            };
+            match Self::fetch_with_cookie(ctx, &client, &header).await {
+                Err(ProviderError::AuthRequired) => rejected = Some(ProviderError::AuthRequired),
+                result => return result,
+            }
+        }
+        Err(rejected.unwrap_or_else(|| sessions.exhaustion_error()))
+    }
 
-        let account = Self::fetch_account(&client, &cookie_header).await?;
+    async fn fetch_with_cookie(
+        ctx: &FetchContext,
+        client: &Client,
+        cookie_header: &str,
+    ) -> Result<UsageSnapshot, ProviderError> {
+        let account = Self::fetch_account(client, cookie_header).await?;
         let workspace = account
             .resolve_workspace(ctx.workspace_id.as_deref())
             .cloned()
@@ -173,7 +176,7 @@ impl NotionProvider {
                 ProviderError::Other("No Notion workspace found for this account.".into())
             })?;
 
-        let rate_limit = Self::fetch_rate_limit(&client, &cookie_header, &workspace.id).await?;
+        let rate_limit = Self::fetch_rate_limit(client, cookie_header, &workspace.id).await?;
 
         if rate_limit.is_not_applicable() {
             let name = workspace.name.as_deref().unwrap_or("this workspace");
@@ -250,20 +253,10 @@ impl NotionProvider {
     }
 }
 
-impl Default for NotionProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[async_trait]
 impl Provider for NotionProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Notion
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -283,12 +276,10 @@ impl Provider for NotionProvider {
         vec![SourceMode::Auto, SourceMode::Web]
     }
 
-    fn supports_web(&self) -> bool {
+    /// The shell would import only the first browser's cookies; the provider
+    /// tries each browser so a signed-out session can move to the next one.
+    fn owns_browser_cookie_resolution(&self) -> bool {
         true
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
     }
 }
 
@@ -335,7 +326,12 @@ fn build_usage_snapshot(
 
     let mut snapshot = UsageSnapshot::new(primary);
     if let Some(secondary) = secondary {
-        snapshot = snapshot.with_secondary(secondary);
+        // Upstream `NotionProviderDescriptor.swift:32` (`weeklyLabel:
+        // "Monthly"`): the billing-period lane reads "Monthly", not the
+        // generic monthly-window wording.
+        snapshot = snapshot
+            .with_secondary(secondary)
+            .with_secondary_label_key(crate::locale::LocaleKey::ProviderLabelMonthly);
     }
     snapshot.updated_at = now;
 
@@ -748,6 +744,11 @@ mod tests {
             secondary.resets_at,
             date_from_milliseconds(Some(1_735_689_600_000.0))
         );
+        // Upstream `NotionProviderDescriptor.swift:32`: "Monthly".
+        assert_eq!(
+            snap.secondary_label_key,
+            Some(crate::locale::LocaleKey::ProviderLabelMonthly)
+        );
 
         assert_eq!(snap.account_email.as_deref(), Some("ada@example.com"));
         assert_eq!(snap.account_organization.as_deref(), Some("Acme Biz"));
@@ -773,6 +774,7 @@ mod tests {
             Some(MONTHLY_WINDOW_SENTINEL_MINUTES)
         );
         assert!(snap.secondary.is_none());
+        assert_eq!(snap.secondary_label_key, None);
     }
 
     #[test]

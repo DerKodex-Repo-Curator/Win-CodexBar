@@ -21,6 +21,37 @@ pub struct ProviderCatalogEntry {
     pub(crate) id: String,
     pub(crate) display_name: String,
     pub(crate) cookie_domain: Option<String>,
+    /// CLI aliases the Settings search also matches (see `ProviderId::cli_aliases`).
+    pub(crate) cli_aliases: Vec<String>,
+}
+
+/// One provider's service status for the sidebar dot and the tray panel.
+/// `status` is `None` until the first successful poll.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderStatusEntry {
+    pub provider_id: String,
+    pub status: Option<ProviderServiceStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderServiceStatus {
+    /// Upstream raw indicator: none, minor, major, critical, maintenance, unknown.
+    pub indicator: &'static str,
+    pub description: Option<String>,
+    /// Unix milliseconds of the feed's last update.
+    pub updated_at: Option<i64>,
+}
+
+impl From<&codexbar::status::ProviderStatus> for ProviderServiceStatus {
+    fn from(status: &codexbar::status::ProviderStatus) -> Self {
+        Self {
+            indicator: status.indicator.as_raw(),
+            description: status.description.clone(),
+            updated_at: status.updated_at.map(|at| at.timestamp_millis()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -32,6 +63,7 @@ pub struct SettingsSnapshot {
     refresh_interval_secs: u64,
     adaptive_refresh: bool,
     refresh_all_providers_on_menu_open: bool,
+    status_checks_enabled: bool,
     low_power_mode: bool,
     low_power_mode_preference: &'static str,
     start_at_login: bool,
@@ -42,10 +74,13 @@ pub struct SettingsSnapshot {
     notification_sound_paths: codexbar::settings::NotificationSoundPaths,
     high_usage_threshold: f64,
     critical_usage_threshold: f64,
-    provider_usage_thresholds:
-        std::collections::HashMap<String, codexbar::settings::UsageThresholdOverride>,
+    /// Per-provider quota warnings keyed by CLI name; Global providers are absent.
+    provider_quota_warnings:
+        std::collections::HashMap<String, codexbar::settings::ProviderQuotaWarnings>,
     predictive_pace_warning_enabled: bool,
+    limit_reset_notifications_enabled: bool,
     credential_expiry_notifications_enabled: bool,
+    session_quota_notifications_enabled: bool,
     show_pace: bool,
     tray_icon_mode: &'static str,
     stacked_tray_top_provider: Option<String>,
@@ -53,7 +88,16 @@ pub struct SettingsSnapshot {
     switcher_shows_icons: bool,
     menu_bar_shows_highest_usage: bool,
     menu_bar_shows_percent: bool,
+    menu_bar_icon_style: codexbar::settings::MenuBarIconStyle,
+    merged_overview_selected_providers: Vec<String>,
+    quota_warning_markers_visible: bool,
+    highlight_menu_cards_on_hover: bool,
+    workday_tick_style: codexbar::settings::WorkdayTickStyle,
     menu_bar_color_pace: bool,
+    menu_bar_color_by_provider: bool,
+    menu_bar_pace_reserve_positive: bool,
+    providers_sorted_alphabetically: bool,
+    providers_enabled_only: bool,
     show_as_used: bool,
     show_all_token_accounts_in_menu: bool,
     enable_animations: bool,
@@ -68,6 +112,7 @@ pub struct SettingsSnapshot {
     global_shortcut: String,
     switcher_shortcuts: std::collections::BTreeMap<String, String>,
     codex_custom_sessions_dirs: Vec<String>,
+    antigravity_additional_profile_homes: Vec<String>,
     agent_sessions_enabled: bool,
     stay_awake_enabled: bool,
     agent_session_ssh_hosts: Vec<String>,
@@ -77,6 +122,7 @@ pub struct SettingsSnapshot {
     http_proxy_username: String,
     http_proxy_password: String,
     ui_language: &'static str,
+    ui_language_follows_system: bool,
     theme: &'static str,
     window_scale_percent: u16,
     tray_scale_percent: u16,
@@ -86,6 +132,17 @@ pub struct SettingsSnapshot {
     claude_swap_enabled: bool,
     claude_swap_executable_path: String,
     codex_spark_usage_visible: bool,
+    codex_openai_web_extras: bool,
+    codex_historical_tracking: bool,
+    codex_external_oauth_sources_allowed: bool,
+    codex_local_session_cost_ledger_enabled: bool,
+    codex_openai_web_battery_saver_enabled: bool,
+    /// OpenAI API Live Usage (upstream #4495): fetch Tokens/min on each refresh.
+    #[serde(rename = "openAiLiveUsageEnabled")]
+    openai_live_usage_enabled: bool,
+    /// Manual per-model organization limits, read by the card's limit line and the editor.
+    #[serde(rename = "openAiModelRateLimits")]
+    openai_model_rate_limits: Vec<ModelRateLimitSnapshot>,
     disable_keychain_access: bool,
     wayfinder_gateway_url: String,
     provider_metrics: std::collections::HashMap<String, &'static str>,
@@ -111,6 +168,10 @@ pub struct SettingsSnapshot {
     /// History window as its persisted raw form (`rolling:N`,
     /// `month-to-date`, `all`).
     cost_reporting_period: String,
+    cost_usage_enabled: bool,
+    /// Usage & Spend time range, same raw form as `cost_reporting_period`.
+    spend_dashboard_period: String,
+    spend_dashboard_hidden_source_ids: Vec<String>,
     provider_accent_colors: std::collections::HashMap<String, String>,
 }
 
@@ -143,6 +204,24 @@ impl From<Settings> for SettingsSnapshot {
         let claude_swap_enabled = settings.claude_swap_enabled();
         let claude_swap_executable_path = settings.claude_swap_executable_path().to_string();
         let codex_spark_usage_visible = settings.codex_spark_usage_visible();
+        let openai_live_usage_enabled = settings.live_usage_enabled(ProviderId::OpenAIApi);
+        let openai_model_rate_limits = settings
+            .model_rate_limits(ProviderId::OpenAIApi)
+            .iter()
+            .map(ModelRateLimitSnapshot::from)
+            .collect();
+        let codex_openai_web_extras = settings.codex_openai_web_extras();
+        let codex_historical_tracking = settings.codex_historical_tracking();
+        let codex_local_session_cost_ledger_enabled =
+            settings.local_session_cost_ledger_enabled(ProviderId::Codex);
+        let codex_openai_web_battery_saver_enabled =
+            settings.openai_web_battery_saver_enabled(ProviderId::Codex);
+        let provider_quota_warnings = settings
+            .provider_configs
+            .iter()
+            .filter(|(_, config)| !config.quota_warnings.is_empty())
+            .map(|(id, config)| (id.cli_name().to_string(), config.quota_warnings))
+            .collect();
         let wayfinder_gateway_url = settings.gateway_url(ProviderId::Wayfinder).to_string();
 
         let provider_order = settings.provider_display_order_names();
@@ -167,6 +246,7 @@ impl From<Settings> for SettingsSnapshot {
             refresh_interval_secs: settings.refresh_interval_secs,
             adaptive_refresh: settings.adaptive_refresh,
             refresh_all_providers_on_menu_open: settings.refresh_all_providers_on_menu_open,
+            status_checks_enabled: settings.status_checks_enabled,
             low_power_mode: settings.low_power_mode_preference
                 == codexbar::settings::LowPowerModePreference::On,
             low_power_mode_preference: settings.low_power_mode_preference.as_str(),
@@ -178,10 +258,12 @@ impl From<Settings> for SettingsSnapshot {
             notification_sound_paths: settings.notification_sound_paths,
             high_usage_threshold: settings.high_usage_threshold,
             critical_usage_threshold: settings.critical_usage_threshold,
-            provider_usage_thresholds: settings.provider_usage_thresholds,
+            provider_quota_warnings,
             predictive_pace_warning_enabled: settings.predictive_pace_warning_enabled,
+            limit_reset_notifications_enabled: settings.limit_reset_notifications_enabled,
             credential_expiry_notifications_enabled: settings
                 .credential_expiry_notifications_enabled,
+            session_quota_notifications_enabled: settings.session_quota_notifications_enabled,
             show_pace: settings.show_pace,
             tray_icon_mode: tray_icon_mode_label(settings.tray_icon_mode),
             stacked_tray_top_provider: settings.stacked_tray_top_provider,
@@ -189,7 +271,16 @@ impl From<Settings> for SettingsSnapshot {
             switcher_shows_icons: settings.switcher_shows_icons,
             menu_bar_shows_highest_usage: settings.menu_bar_shows_highest_usage,
             menu_bar_shows_percent: settings.menu_bar_shows_percent,
+            menu_bar_icon_style: settings.menu_bar_icon_style,
+            merged_overview_selected_providers: settings.merged_overview_selected_providers,
+            quota_warning_markers_visible: settings.quota_warning_markers_visible,
+            highlight_menu_cards_on_hover: settings.highlight_menu_cards_on_hover,
+            workday_tick_style: settings.workday_tick_style,
             menu_bar_color_pace: settings.menu_bar_color_pace,
+            menu_bar_color_by_provider: settings.menu_bar_color_by_provider,
+            menu_bar_pace_reserve_positive: settings.menu_bar_pace_reserve_positive,
+            providers_sorted_alphabetically: settings.providers_sorted_alphabetically,
+            providers_enabled_only: settings.providers_enabled_only,
             show_as_used: settings.show_as_used,
             show_all_token_accounts_in_menu: settings.show_all_token_accounts_in_menu,
             enable_animations: settings.enable_animations,
@@ -206,15 +297,19 @@ impl From<Settings> for SettingsSnapshot {
             ),
             global_shortcut: settings.global_shortcut,
             codex_custom_sessions_dirs: settings.codex_custom_sessions_dirs,
+            antigravity_additional_profile_homes: settings.antigravity_additional_profile_homes,
             agent_sessions_enabled: settings.agent_sessions_enabled,
             stay_awake_enabled: settings.stay_awake_enabled,
             agent_session_ssh_hosts: settings.agent_session_ssh_hosts,
             hooks_enabled: settings.hooks_enabled,
+            openai_live_usage_enabled,
+            openai_model_rate_limits,
             http_proxy_enabled: settings.http_proxy_enabled,
             http_proxy_url: settings.http_proxy_url,
             http_proxy_username: settings.http_proxy_username,
             http_proxy_password: settings.http_proxy_password,
             ui_language: language_label(settings.ui_language),
+            ui_language_follows_system: settings.ui_language_follows_system,
             theme: theme_label(settings.theme),
             window_scale_percent: settings.window_scale_percent,
             tray_scale_percent: settings.tray_scale_percent,
@@ -224,6 +319,11 @@ impl From<Settings> for SettingsSnapshot {
             claude_swap_enabled,
             claude_swap_executable_path,
             codex_spark_usage_visible,
+            codex_openai_web_extras,
+            codex_historical_tracking,
+            codex_external_oauth_sources_allowed: settings.codex_external_oauth_sources_allowed,
+            codex_local_session_cost_ledger_enabled,
+            codex_openai_web_battery_saver_enabled,
             disable_keychain_access: settings.disable_keychain_access,
             wayfinder_gateway_url,
             provider_metrics,
@@ -251,6 +351,9 @@ impl From<Settings> for SettingsSnapshot {
             hide_native_codex_cost_when_open_codex_present: settings
                 .hide_native_codex_cost_when_open_codex_present,
             cost_reporting_period: settings.cost_reporting_period.raw(),
+            cost_usage_enabled: settings.cost_usage_enabled,
+            spend_dashboard_period: settings.spend_dashboard_period.raw(),
+            spend_dashboard_hidden_source_ids: settings.spend_dashboard_hidden_source_ids,
             provider_accent_colors: settings
                 .provider_configs
                 .iter()
@@ -275,6 +378,11 @@ pub(crate) fn provider_catalog_for(settings: &Settings) -> Vec<ProviderCatalogEn
             id: provider.cli_name().to_string(),
             display_name: provider.display_name().to_string(),
             cookie_domain: provider.cookie_domain().map(ToString::to_string),
+            cli_aliases: provider
+                .cli_aliases()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
         })
         .collect()
 }

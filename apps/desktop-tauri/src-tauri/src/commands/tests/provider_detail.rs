@@ -56,7 +56,7 @@ fn usage_item_descriptors_keep_raw_ids_and_redact_titles() {
         "OAuth",
     );
     let mut snapshot =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None, None);
     snapshot.primary_label = Some("Account owner@example.com".to_string());
     snapshot.extra_rate_windows = vec![NamedRateWindowSnapshot {
         id: "credits".to_string(),
@@ -76,9 +76,9 @@ fn usage_item_descriptors_keep_raw_ids_and_redact_titles() {
         crate::commands::usage_item_descriptors(Some(&snapshot), &settings, ProviderId::Codex);
 
     assert_eq!(items[0].id, "metric:primary");
-    assert_eq!(items[0].title, "Account Hidden");
+    assert_eq!(items[0].title, "Account");
     assert_eq!(items[1].id, "metric:extra-credits");
-    assert_eq!(items[1].title, "Credits Hidden");
+    assert_eq!(items[1].title, "Credits");
     assert_eq!(items[2].id, "metric:extra-missing");
     assert!(!items[2].available);
 }
@@ -97,7 +97,7 @@ fn usage_item_descriptors_include_detail_sections() {
             .expect("valid detail"),
     ];
     let snapshot =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None, None);
 
     let mut settings = Settings {
         hide_personal_info: true,
@@ -127,7 +127,7 @@ fn usage_item_descriptors_include_detail_sections() {
         .find(|item| item.id.starts_with("detailSection:") && !item.available)
         .expect("hidden detail placeholder");
     assert!(hidden.id.contains("owner@example.com quota"));
-    assert_eq!(hidden.title, "Hidden quota");
+    assert_eq!(hidden.title, "quota");
 }
 
 #[test]
@@ -188,8 +188,13 @@ fn local_opencodego_estimates_keep_quota_windows_but_drop_derived_pace() {
     let metadata = instantiate_provider(ProviderId::OpenCodeGo)
         .metadata()
         .clone();
-    let snapshot =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::OpenCodeGo, &metadata, &result, None);
+    let snapshot = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::OpenCodeGo,
+        &metadata,
+        &result,
+        None,
+        None,
+    );
 
     assert_eq!(snapshot.source_label, "local estimate");
     assert_eq!(snapshot.primary.used_percent, 12.0);
@@ -230,7 +235,7 @@ fn provider_inventory_maps_to_the_bridge_without_token_ids() {
     );
     let metadata = instantiate_provider(ProviderId::Grok).metadata().clone();
     let snapshot =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Grok, &metadata, &result, None);
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Grok, &metadata, &result, None, None);
 
     assert_eq!(snapshot.inventory.len(), 1);
     assert_eq!(snapshot.inventory[0].available_count, 2);

@@ -378,8 +378,8 @@ pub(crate) fn refresh_tray_presentation(app: &AppHandle) {
 /// Update the tray icon pixels and tooltip text to reflect current provider usage.
 ///
 /// Behaviour mirrors egui's `choose_tray_update_plan` (rust/src/native_ui/app.rs):
-/// - If `menu_bar_shows_highest_usage` is on OR `menu_bar_display_mode == "minimal"`,
-///   render the bar from the healthy provider with the highest session usage.
+/// - If `menu_bar_shows_highest_usage` is on (legacy Display mode "minimal" is
+///   folded into it on load), render the bar from the healthy provider with the highest session usage.
 /// - Otherwise render from the first enabled healthy provider (catalog order).
 /// - When any provider exposes a weekly/secondary window, the icon shows both
 ///   bars from the same picked provider.
@@ -403,7 +403,8 @@ pub fn update_tray_icon_and_tooltip(
     let icon = Image::new_owned(rgba, w, h);
     let _ = tray.set_icon(Some(icon));
 
-    let tooltip = build_tooltip(snapshots, settings.ui_language);
+    let tooltip = build_tooltip(snapshots, settings.ui_language, settings.hide_personal_info);
+    let tooltip = crate::status_poller::with_incident_lines(app, &settings, tooltip);
     let _ = tray.set_tooltip(Some(tooltip));
 }
 
@@ -411,6 +412,7 @@ pub fn update_tray_icon_and_tooltip(
 fn build_tooltip(
     snapshots: &[crate::commands::ProviderUsageSnapshot],
     lang: codexbar::settings::Language,
+    hide_personal_info: bool,
 ) -> String {
     use codexbar::locale::{LocaleKey, get_text};
 
@@ -422,7 +424,13 @@ fn build_tooltip(
     let mut lines = Vec::with_capacity(snapshots.len() + 1);
     for s in snapshots {
         let status = if let Some(ref err) = s.error {
-            let short = truncate_tooltip_text(err, 36);
+            // Provider errors can quote the signed-in email.
+            let err = codexbar::core::PersonalInfoRedactor::hide_emails_in_text(
+                Some(err),
+                hide_personal_info,
+            )
+            .unwrap_or_default();
+            let short = truncate_tooltip_text(&err, 36);
             format!("{}: {} ({})", s.display_name, error_label, short)
         } else {
             let label = crate::commands::compact_tray_status_label(headline_window(s), lang);
@@ -545,11 +553,8 @@ mod tests {
         let action = resolve_menu_action("pop_out").expect("pop_out action");
         assert!(matches!(action, MenuAction::OpenFlyout));
 
-        // SurfaceMode::TrayPanel is retained purely as a data key (geometry
-        // key / window_properties source / panel-size reference) for the
-        // flyout window's builder — the properties themselves are unchanged.
         let props = SurfaceMode::TrayPanel.window_properties();
-        assert!(props.resizable && props.blur_dismiss && props.skip_taskbar);
+        assert!(!props.resizable && props.blur_dismiss && props.skip_taskbar);
     }
 
     #[test]
@@ -626,7 +631,11 @@ mod tests {
         let mut codex = fake_snapshot("codex", "Codex", 8.0);
         codex.primary.reset_description = Some("4h 10m".to_string());
 
-        let tooltip = build_tooltip(&[claude, codex], codexbar::settings::Language::English);
+        let tooltip = build_tooltip(
+            &[claude, codex],
+            codexbar::settings::Language::English,
+            false,
+        );
 
         assert_eq!(
             tooltip,
@@ -644,7 +653,7 @@ mod tests {
         codex.primary.reset_description = Some("No active 5h session".to_string());
         codex.secondary.as_mut().unwrap().reset_description = Some("3d 17h".to_string());
 
-        let tooltip = build_tooltip(&[codex], codexbar::settings::Language::English);
+        let tooltip = build_tooltip(&[codex], codexbar::settings::Language::English, false);
 
         assert_eq!(tooltip, "CodexBar\nCodex: 16% • Resets in 3d 17h");
     }
@@ -655,7 +664,7 @@ mod tests {
         claude.primary.reset_description =
             Some("resets in Jun 10 at 3:00PM with extra noisy suffix".to_string());
 
-        let tooltip = build_tooltip(&[claude], codexbar::settings::Language::English);
+        let tooltip = build_tooltip(&[claude], codexbar::settings::Language::English, false);
 
         let line = tooltip.lines().nth(1).expect("provider tooltip line");
         assert!(line.starts_with("Claude: 13% • Resets in Jun 10 at 3:00PM"));
@@ -664,11 +673,29 @@ mod tests {
     }
 
     #[test]
+    fn hidden_personal_info_removes_emails_from_tooltip_errors() {
+        let mut codex = fake_snapshot("codex", "Codex", 13.0);
+        codex.error = Some("proof@example.com: session expired".to_string());
+
+        let shown = build_tooltip(
+            &[codex.clone()],
+            codexbar::settings::Language::English,
+            false,
+        );
+        assert!(shown.contains("proof@example.com"), "{shown}");
+
+        let hidden = build_tooltip(&[codex], codexbar::settings::Language::English, true);
+        assert!(hidden.contains("session expired"), "{hidden}");
+        assert!(!hidden.contains('@'), "{hidden}");
+        assert!(!hidden.contains("example.com"), "{hidden}");
+    }
+
+    #[test]
     fn japanese_tooltip_localizes_error_status() {
         let mut claude = fake_snapshot("claude", "Claude", 13.0);
         claude.error = Some("network timeout".to_string());
 
-        let tooltip = build_tooltip(&[claude], codexbar::settings::Language::Japanese);
+        let tooltip = build_tooltip(&[claude], codexbar::settings::Language::Japanese, false);
 
         assert!(tooltip.contains("エラー"), "{tooltip}");
         assert!(!tooltip.contains(": error ("), "{tooltip}");
@@ -680,10 +707,16 @@ mod tests {
         claude.primary.resets_at =
             Some((chrono::Utc::now() + chrono::Duration::hours(2)).to_rfc3339());
 
-        let english_tooltip =
-            build_tooltip(&[claude.clone()], codexbar::settings::Language::English);
-        let japanese_tooltip =
-            build_tooltip(&[claude.clone()], codexbar::settings::Language::Japanese);
+        let english_tooltip = build_tooltip(
+            &[claude.clone()],
+            codexbar::settings::Language::English,
+            false,
+        );
+        let japanese_tooltip = build_tooltip(
+            &[claude.clone()],
+            codexbar::settings::Language::Japanese,
+            false,
+        );
 
         assert!(english_tooltip.contains("Resets in"), "{english_tooltip}");
         assert!(

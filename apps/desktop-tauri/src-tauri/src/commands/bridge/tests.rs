@@ -112,3 +112,91 @@ fn tray_status_label_relocalizes_without_refetch() {
         "{japanese}"
     );
 }
+
+#[test]
+fn secondary_label_key_crosses_the_bridge_only_when_the_provider_sets_it() {
+    let now = chrono::Utc::now();
+    let monthly = || {
+        RateWindow::with_details(
+            25.0,
+            Some(43_200),
+            Some(now + chrono::Duration::days(9)),
+            None,
+        )
+    };
+    let bridge = |id: ProviderId, usage: codexbar::core::UsageSnapshot| {
+        let metadata = codexbar::core::instantiate_provider(id).metadata().clone();
+        let result = ProviderFetchResult::new(usage, "web");
+        serde_json::to_value(ProviderUsageSnapshot::from_fetch_result(
+            id, &metadata, &result, None, None,
+        ))
+        .unwrap()
+    };
+
+    let notion = bridge(
+        ProviderId::Notion,
+        codexbar::core::UsageSnapshot::new(monthly())
+            .with_secondary(monthly())
+            .with_secondary_label_key(codexbar::locale::LocaleKey::ProviderLabelMonthly),
+    );
+    assert_eq!(notion["secondaryLabelKey"], "ProviderLabelMonthly");
+    assert_eq!(notion["secondaryLabel"], "Monthly");
+
+    let augment = bridge(
+        ProviderId::Augment,
+        codexbar::core::UsageSnapshot::new(monthly()).with_secondary(monthly()),
+    );
+    assert!(augment.get("secondaryLabelKey").is_none());
+    assert_eq!(augment["secondaryLabel"], "Monthly");
+}
+
+#[test]
+fn provider_card_wording_crosses_the_bridge() {
+    let regen =
+        RateWindowSnapshot::from_rate_window(&RateWindow::new(10.0).with_regenerating_reset());
+    let hidden = RateWindowSnapshot::from_rate_window(
+        &RateWindow::informational("Balance: $1.00").hidden_on_card(),
+    );
+    let regen_json = serde_json::to_value(&regen).unwrap();
+    let hidden_json = serde_json::to_value(&hidden).unwrap();
+    assert_eq!(regen_json["resetRegenerates"], true);
+    assert!(regen_json.get("hiddenOnCard").is_none());
+    assert_eq!(hidden_json["hiddenOnCard"], true);
+    assert!(hidden_json.get("resetRegenerates").is_none());
+
+    let metadata = codexbar::core::instantiate_provider(ProviderId::LithosAI)
+        .metadata()
+        .clone();
+    let cost = codexbar::core::CostSnapshot::new(0.0, "USD", "Prepaid credits")
+        .with_balance(4.0)
+        .with_card_title(codexbar::locale::LocaleKey::CreditsTitle);
+    let result = codexbar::core::ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(RateWindow::new(0.0)),
+        "web",
+    )
+    .with_cost(cost);
+    let snapshot = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::LithosAI,
+        &metadata,
+        &result,
+        None,
+        None,
+    );
+    let json = serde_json::to_value(&snapshot).unwrap();
+    assert_eq!(json["cost"]["titleKey"], "CreditsTitle");
+
+    let plain = codexbar::core::ProviderFetchResult::new(
+        codexbar::core::UsageSnapshot::new(RateWindow::new(0.0)),
+        "web",
+    )
+    .with_cost(codexbar::core::CostSnapshot::new(1.0, "USD", "This month"));
+    let json = serde_json::to_value(ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::LithosAI,
+        &metadata,
+        &plain,
+        None,
+        None,
+    ))
+    .unwrap();
+    assert!(json["cost"].get("titleKey").is_none());
+}

@@ -15,6 +15,7 @@ use codexbar::settings::{Language, Settings};
 mod cookie_region_options;
 mod provider_cache;
 mod provider_detail;
+mod usage_items;
 
 #[test]
 fn validate_surface_target_accepts_matching_target() {
@@ -515,8 +516,13 @@ fn japanese_provider_snapshot_localizes_weekly_label() {
         .with_secondary(codexbar::core::RateWindow::new(20.0));
     let result = ProviderFetchResult::new(usage, "OAuth");
 
-    let snapshot =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
+    let snapshot = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        None,
+        None,
+    );
 
     // Secondary label stays raw; localization happens at render time.
     assert_eq!(snapshot.secondary_label, Some("Weekly".to_string()));
@@ -539,8 +545,13 @@ fn japanese_provider_snapshot_localizes_pace_reserve_description() {
         .with_secondary(secondary);
     let result = ProviderFetchResult::new(usage, "OAuth");
 
-    let snapshot =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
+    let snapshot = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        None,
+        None,
+    );
 
     // Reserve data stays raw; localization happens at render time.
     let secondary = snapshot.secondary.as_ref().expect("secondary window");

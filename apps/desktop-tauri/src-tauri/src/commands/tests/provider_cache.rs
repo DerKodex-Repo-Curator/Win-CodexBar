@@ -87,7 +87,7 @@ fn provider_cache_upsert_replaces_existing_provider() {
         "CLI",
     );
     let mut first =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None, None);
     let mut second = first.clone();
     first.error = Some("old".to_string());
     second.error = Some("new".to_string());
@@ -108,10 +108,15 @@ fn provider_cache_prunes_disabled_providers() {
         "CLI",
     );
     let codex =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None, None);
     let claude_meta = instantiate_provider(ProviderId::Claude).metadata().clone();
-    let claude =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &claude_meta, &result, None);
+    let claude = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &claude_meta,
+        &result,
+        None,
+        None,
+    );
 
     let mut cache = vec![codex, claude];
     crate::commands::prune_provider_cache_to_enabled(&mut cache, &[ProviderId::Codex]);
@@ -140,8 +145,13 @@ fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
         codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
         "OAuth",
     );
-    let good =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
+    let good = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        None,
+        None,
+    );
     let snapshot = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
@@ -171,7 +181,7 @@ fn codex_transient_transport_failure_helper_uses_typed_policy() {
         "OAuth",
     );
     let good =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None, None);
     let snapshot = ProviderUsageSnapshot::from_error(
         ProviderId::Codex,
         &metadata,
@@ -199,8 +209,13 @@ fn claude_repeated_auth_failure_surfaces_error() {
         codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
         "OAuth",
     );
-    let good =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
+    let good = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        None,
+        None,
+    );
     let first_error = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
@@ -235,8 +250,13 @@ fn claude_cloudflare_challenge_retains_prior_usage_while_surfaceing_guidance() {
         codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
         "OAuth",
     );
-    let good =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
+    let good = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        None,
+        None,
+    );
     let challenge = codexbar::providers::claude::CLOUDFLARE_CHALLENGE_MESSAGE;
     let error = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
@@ -282,8 +302,13 @@ fn claude_cloudflare_challenge_keeps_prior_usage_when_guidance_surfaces() {
         codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
         "Web",
     );
-    let mut good =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
+    let mut good = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        None,
+        None,
+    );
     good.updated_at = "2026-09-01T00:00:00Z".to_string();
     let error = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
@@ -327,8 +352,13 @@ fn claude_cli_parse_failure_keeps_last_good_every_time() {
         "CLI",
     );
     result.has_successful_claude_cli_quota = true;
-    let good =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
+    let good = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        None,
+        None,
+    );
     let err = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
@@ -367,8 +397,13 @@ fn claude_hard_credentials_missing_does_not_preserve_stale() {
         codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(17.0)),
         "OAuth",
     );
-    let good =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
+    let good = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        None,
+        None,
+    );
     let err = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,

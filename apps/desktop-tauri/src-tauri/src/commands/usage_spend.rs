@@ -3,11 +3,14 @@
 
 use chrono::Utc;
 use codexbar::cost_reporting_period::{CostReportingPeriod, CostTimeZone};
-use codexbar::cost_scanner::CostScanner;
+use codexbar::cost_scanner::{
+    CostScanner, TOKEN_ACTIVITY_DAYS, TokenActivityDay, daily_token_activity,
+};
 use codexbar::spend_contract::{
     SpendContract, build_contract_from_period_summary, build_local_spend_contract,
     build_local_spend_contract_for_period, build_local_spend_contract_from_summary,
 };
+use codexbar::spend_trend::SpendTrend;
 use serde::Serialize;
 use tauri::State;
 
@@ -17,12 +20,12 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
 
 mod build;
-use build::build_usage_spend_summary;
 #[cfg(test)]
 use build::{
     antigravity_spend_values, cached_spend, include_in_shared_overview, period_cost_from_daily,
     selected_period_scan,
 };
+use build::{build_usage_spend_summary, cost_tracking_off_summary};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,6 +94,41 @@ pub struct UsageSpendSummary {
     pub reporting_period: String,
     pub reporting_day: String,
     pub dashboard_timezone: String,
+    /// False when "Track costs" is off: nothing was scanned and the summary
+    /// is empty, so the pane shows "Cost tracking is off".
+    pub cost_tracking_enabled: bool,
+    /// The last year of per-day tokens for each local-log row, independent of
+    /// the selected period; feeds the token activity grid.
+    pub token_activity: Vec<TokenActivitySource>,
+    /// Per-source spend series for the trend explorer; absent while
+    /// "Track costs" is off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trend: Option<SpendTrend>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenActivitySource {
+    pub provider_id: String,
+    pub days: Vec<TokenActivityDay>,
+}
+
+/// Rows whose local logs can establish per-day coverage, keeping only those
+/// the pane lists. Pi stays out: its rows can also be projected into Codex or
+/// Claude, which would count the same usage twice.
+fn token_activity_sources(
+    provider_ids: &BTreeSet<String>,
+    codex: Vec<TokenActivityDay>,
+    claude: Vec<TokenActivityDay>,
+) -> Vec<TokenActivitySource> {
+    [("codex", codex), ("claude", claude)]
+        .into_iter()
+        .filter(|(id, days)| provider_ids.contains(*id) && !days.is_empty())
+        .map(|(id, days)| TokenActivitySource {
+            provider_id: id.to_string(),
+            days,
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -226,10 +264,14 @@ pub async fn get_usage_spend_summary(
     };
 
     // An explicit `period` wins; otherwise use the saved History window.
-    let period = CostReportingPeriod::resolve_request(
-        period.as_deref(),
-        codexbar::settings::Settings::load().cost_reporting_period,
-    );
+    let settings = codexbar::settings::Settings::load();
+    let period =
+        CostReportingPeriod::resolve_request(period.as_deref(), settings.cost_reporting_period);
+    // Checked before any cache read, so a summary built while tracking was on
+    // is never served after it is turned off.
+    if !settings.cost_usage_enabled {
+        return Ok(cost_tracking_off_summary(period));
+    }
     let force_refresh = force_refresh.unwrap_or(false);
     refresh_opencodex_pricing_before_build(&cached, period, force_refresh).await;
     let built = tauri::async_runtime::spawn_blocking(move || {

@@ -811,3 +811,48 @@ fn opencodego_selected_cookie_account_uses_web_route() {
     assert_eq!(ctx.token_account_kind, Some(TokenAccountKind::Cookie));
     assert!(ctx.token_account_isolated);
 }
+
+#[test]
+fn opencodego_cookie_source_off_forbids_provider_browser_discovery() {
+    let mut settings = Settings::default();
+    settings.set_cookie_source(ProviderId::OpenCodeGo, "off");
+    settings.set_usage_source(ProviderId::OpenCodeGo, "auto");
+    let no_accounts = HashMap::new();
+
+    let without_key = super::build_fetch_context(
+        ProviderId::OpenCodeGo,
+        &settings,
+        &ManualCookies::default(),
+        &ApiKeys::default(),
+        &no_accounts,
+    );
+    assert_eq!(without_key.source_mode, SourceMode::Cli);
+    assert!(without_key.manual_cookie_header.is_none());
+    assert!(without_key.manual_cookie_missing);
+
+    let mut keys = ApiKeys::default();
+    keys.set("opencodego", "global-key", None);
+    let with_key = super::build_fetch_context(
+        ProviderId::OpenCodeGo,
+        &settings,
+        &ManualCookies::default(),
+        &keys,
+        &no_accounts,
+    );
+    assert_eq!(with_key.source_mode, SourceMode::Auto);
+    assert!(with_key.manual_cookie_missing);
+
+    // Automatic leaves discovery to the provider, which reads a browser only
+    // when the local estimate needs a session.
+    settings.set_cookie_source(ProviderId::OpenCodeGo, "auto");
+    let auto = super::build_fetch_context(
+        ProviderId::OpenCodeGo,
+        &settings,
+        &ManualCookies::default(),
+        &keys,
+        &no_accounts,
+    );
+    assert_eq!(auto.source_mode, SourceMode::Auto);
+    assert!(auto.manual_cookie_header.is_none());
+    assert!(!auto.manual_cookie_missing);
+}

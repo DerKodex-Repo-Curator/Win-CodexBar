@@ -65,7 +65,7 @@ fn settings_replacement_preserves_an_intentional_pause() {
     );
 }
 
-fn empty_summary() -> UsageSpendSummary {
+pub(super) fn empty_summary() -> UsageSpendSummary {
     UsageSpendSummary {
         reporting_period: "rolling:30".to_string(),
         rows: Vec::new(),
@@ -93,6 +93,9 @@ fn empty_summary() -> UsageSpendSummary {
         },
         reporting_day: "2026-10-01".to_string(),
         dashboard_timezone: "UTC".to_string(),
+        cost_tracking_enabled: true,
+        token_activity: Vec::new(),
+        trend: None,
     }
 }
 
