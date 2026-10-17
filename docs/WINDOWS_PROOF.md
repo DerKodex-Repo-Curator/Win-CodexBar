@@ -176,3 +176,39 @@ Tick each entry as it is verified on the Windows target.
 [ ] runtime.update-banner-flow
 [ ] runtime.single-instance-mutex
 ```
+
+---
+
+## 5. Mocked-IPC proof build
+
+`apps/desktop-tauri/proof.html` runs the real React surfaces in any browser.
+The Tauri bridge is replaced by `mockIPC` / `mockWindows` from
+`@tauri-apps/api/mocks`. Commands are answered by synthetic fixtures in
+`src/proof/fixtures/` (typed against `types/bridge.ts`). The desktop bundle
+(`index.html` → `src/main.tsx`) never imports `src/proof`.
+
+```powershell
+cd apps/desktop-tauri
+pnpm run dev:proof      # http://127.0.0.1:1420/proof.html
+pnpm run build:proof    # static output in dist-proof/
+```
+
+URL parameters:
+
+| Param | Values | Default |
+| --- | --- | --- |
+| `window` | `main`, `settings`, `flyout`, `floatbar` | `main` |
+| `tab` | any settings tab id, or `providers:<id>` | `general` |
+| `fixture` | `default`, `two-codex-accounts`, `errors`, `empty` | `default` |
+| `theme` | `dark`, `light`, `auto` (overrides the fixture) | fixture value |
+
+Example: `proof.html?window=settings&tab=providers:codex&fixture=two-codex-accounts`.
+
+Commands without a fixture return `null` and log
+`[proof-mock] unhandled command: <name>` once, so coverage gaps show up in
+the console. Window, webview, dialog, and event plugin calls are inert.
+
+Screenshots from this build are labelled **"Chromium (Linux), mocked IPC"**
+(or the browser actually used). They support layout, copy, rendered data, and
+provider-siloing review; they do not replace the CUA proof for tray, theme,
+float-bar, DWM, or WebView2 behaviour (see AGENTS.md).
