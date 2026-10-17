@@ -1,7 +1,19 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { buildProofScenario } from "./fixtures/scenarios";
 import { PROOF_WINDOWS, windowLabel, type ProofParams } from "./params";
-import { createProofRouter, type ProofRouter } from "./router";
+import { createProofRouter, type ProofCall, type ProofRouter } from "./router";
+
+/** Read by `scripts/proof-check.mjs` over CDP to assert backend calls. */
+export interface ProofProbe {
+  calls: () => ProofCall[];
+  unhandledCommands: () => string[];
+}
+
+declare global {
+  interface Window {
+    __CODEXBAR_PROOF__?: ProofProbe;
+  }
+}
 
 /**
  * Replace the Tauri IPC with fixture data. Must run before App mounts:
@@ -17,5 +29,9 @@ export function installProofMocks(params: ProofParams, now: Date = new Date()): 
   const others = PROOF_WINDOWS.map(windowLabel).filter((label) => label !== current);
   mockWindows(current, ...others);
   mockIPC(router.handle, { shouldMockEvents: true });
+  window.__CODEXBAR_PROOF__ = {
+    calls: router.calls,
+    unhandledCommands: router.unhandledCommands,
+  };
   return router;
 }

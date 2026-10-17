@@ -57,6 +57,7 @@ tmpclaude-*
 node_modules/
 dist/
 dist-proof/
+apps/desktop-tauri/.proof/
 nul
 
 # Local scripts and env files

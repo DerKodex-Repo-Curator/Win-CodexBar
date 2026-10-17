@@ -32,6 +32,74 @@ type Handler = (args: Record<string, unknown>) => unknown;
 /** Plugin namespaces whose commands are window chrome or OS dialogs: inert in a browser. */
 const INERT_PLUGIN_PREFIXES = ["plugin:window|", "plugin:webview|", "plugin:dialog|", "plugin:event|"];
 
+/**
+ * User actions (sign-ins, credential writes, OS side effects) the browser
+ * accepts as no-ops. They return null and are recorded in `calls()`, so a
+ * scenario can assert that a click reached the backend. Give one a real
+ * handler when a scenario needs its result.
+ */
+export const INERT_ACTIONS = [
+  "add_token_account",
+  "apply_update",
+  "claude_account_add",
+  "claude_account_cancel_login",
+  "claude_account_remove",
+  "claude_account_save_current",
+  "claude_account_switch",
+  "claude_swap_account_reauthenticate",
+  "claude_swap_account_switch",
+  "codex_account_add",
+  "codex_account_reauthenticate",
+  "codex_account_remove",
+  "codex_account_restart_desktop",
+  "codex_account_switch",
+  "download_update",
+  "export_preferences",
+  "focus_agent_session",
+  "get_openai_live_usage",
+  "get_openai_org_rate_limits",
+  "grok_account_add",
+  "grok_account_cancel_login",
+  "grok_account_fetch",
+  "grok_account_reauthenticate",
+  "grok_account_remove",
+  "grok_account_save_current",
+  "grok_account_switch",
+  "import_browser_cookies",
+  "import_preferences",
+  "open_path",
+  "play_notification_sound",
+  "quit_app",
+  "register_global_shortcut",
+  "remove_api_key",
+  "remove_manual_cookie",
+  "remove_openrouter_management_api_key",
+  "remove_token_account",
+  "revoke_provider_credentials",
+  "save_hooks_config",
+  "set_active_token_account",
+  "set_api_key",
+  "set_jetbrains_ide_path",
+  "set_manual_cookie",
+  "set_openrouter_management_api_key",
+  "set_provider_auto_resume_after_quota_reset",
+  "set_provider_azure_api_version",
+  "set_provider_cookie_source",
+  "set_provider_gateway_url",
+  "set_provider_optional_details",
+  "set_provider_region",
+  "set_provider_usage_source",
+  "set_provider_workspace_id",
+  "trigger_provider_login",
+  "unregister_global_shortcut",
+  "write_usage_spend_export",
+] as const;
+
+export interface ProofCall {
+  cmd: string;
+  args: Record<string, unknown>;
+}
+
 export interface ProofRouterOptions {
   window: ProofWindow;
   tab: string;
@@ -44,6 +112,8 @@ export interface ProofRouter {
   handledCommands: readonly string[];
   /** Commands that reached the fallback since this router was created. */
   unhandledCommands: () => string[];
+  /** Every non-plugin command handled so far, in order. */
+  calls: () => ProofCall[];
   settings: () => SettingsSnapshot;
 }
 
@@ -232,11 +302,17 @@ export function createProofRouter(
     open_provider_status_page: () => null,
   };
 
+  const inertActions = new Set<string>(INERT_ACTIONS);
+  const calls: ProofCall[] = [];
+
   const handle = (cmd: string, payload?: unknown): unknown => {
-    const handler = handlers[cmd];
-    if (handler) return handler(argsRecord(payload));
     if (cmd.startsWith("plugin:window|")) return windowPluginResult(cmd);
     if (INERT_PLUGIN_PREFIXES.some((prefix) => cmd.startsWith(prefix))) return null;
+    const args = argsRecord(payload);
+    calls.push({ cmd, args });
+    const handler = handlers[cmd];
+    if (handler) return handler(args);
+    if (inertActions.has(cmd)) return null;
     if (!warned.has(cmd)) {
       warned.add(cmd);
       console.warn(`${UNHANDLED_COMMAND_WARNING} ${cmd}`);
@@ -248,6 +324,7 @@ export function createProofRouter(
     handle,
     handledCommands: Object.keys(handlers),
     unhandledCommands: () => [...warned],
+    calls: () => [...calls],
     settings: () => settings,
   };
 }
