@@ -16,11 +16,13 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const STEP_TIMEOUT_MS = 8_000;
+const CDP_TIMEOUT_MS = 30_000;
 const PROOF_PORT = 1430;
 
 const READY_BY_WINDOW = {
@@ -105,6 +107,8 @@ async function startProofServer() {
     [vite, "--mode", "proof", "--port", String(PROOF_PORT), "--strictPort", "--host", "127.0.0.1"],
     { cwd: appDir, stdio: ["ignore", "pipe", "pipe"] },
   );
+  // fail() exits the process directly; do not leave the server behind.
+  process.once("exit", () => child.kill());
   let log = "";
   child.stdout.on("data", (chunk) => (log += chunk));
   child.stderr.on("data", (chunk) => (log += chunk));
@@ -122,10 +126,12 @@ async function launchBrowser(opts) {
   // Reused across runs: an isolated profile with no logins, never the user's.
   const profile = join(appDir, ".proof", "browser-profile");
   mkdirSync(profile, { recursive: true });
-  const portFile = join(profile, "DevToolsActivePort");
+  // A fixed free port rather than port 0 + DevToolsActivePort: that file
+  // outlives the browser, so a stale copy could point at an older instance.
+  const port = await freePort();
   const args = [
     `--user-data-dir=${profile}`,
-    "--remote-debugging-port=0",
+    `--remote-debugging-port=${port}`,
     "--no-first-run",
     "--no-default-browser-check",
     // A headed window behind other windows would otherwise stop painting,
@@ -137,23 +143,38 @@ async function launchBrowser(opts) {
     ...(opts.headed ? [] : ["--headless=new", "--disable-gpu"]),
     "about:blank",
   ];
-  const startedAt = Date.now();
   const child = spawn(binary, args, { stdio: "ignore" });
-  const end = startedAt + 20_000;
+  let exited = false;
+  child.once("exit", () => (exited = true));
+  const end = Date.now() + 20_000;
   while (Date.now() < end) {
     await sleep(200);
     try {
-      const [port, path] = readFileSync(portFile, "utf8").split(/\r?\n/);
       const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
-      if (version.webSocketDebuggerUrl?.endsWith(path)) {
-        return { ws: version.webSocketDebuggerUrl, child };
-      }
+      if (version.webSocketDebuggerUrl) return { ws: version.webSocketDebuggerUrl, child };
     } catch {
-      // the port file is written once the browser is listening
+      // not listening yet
+    }
+    if (exited) {
+      fail(
+        2,
+        `browser exited before opening its debugging port. Another browser may still be using ${profile}; close it and retry.`,
+      );
     }
   }
   child.kill();
   fail(2, `browser did not open a debugging port: ${binary}`);
+}
+
+function freePort() {
+  return new Promise((done, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => done(port));
+    });
+  });
 }
 
 class Cdp {
@@ -173,6 +194,10 @@ class Cdp {
         for (const listener of this.listeners) listener(msg);
       }
     });
+    socket.addEventListener("close", () => {
+      for (const { reject } of this.pending.values()) reject(new Error("browser connection closed"));
+      this.pending.clear();
+    });
   }
 
   static async connect(url) {
@@ -187,7 +212,22 @@ class Cdp {
   send(method, params = {}, sessionId) {
     const id = ++this.nextId;
     this.socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-    return new Promise((done, reject) => this.pending.set(id, { resolve: done, reject }));
+    return new Promise((done, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`CDP ${method} timed out after ${CDP_TIMEOUT_MS} ms`));
+      }, CDP_TIMEOUT_MS);
+      this.pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          done(value);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+    });
   }
 
   on(listener) {
