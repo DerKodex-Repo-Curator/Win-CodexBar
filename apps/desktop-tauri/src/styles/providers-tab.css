@@ -1,0 +1,506 @@
+/* ── Providers tab – sidebar + detail layout ─────────────────────── */
+
+.provider-split {
+  display: flex;
+  gap: 16px;
+  height: calc(100vh - 140px);
+  min-height: 340px;
+  flex-shrink: 0;
+  overflow: clip;
+  min-width: 0;
+}
+
+.provider-sidebar {
+  width: clamp(164px, 32vw, 200px);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  background: var(--surface-elevated);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.provider-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+  user-select: none;
+  border: 1px solid transparent;
+}
+
+.provider-sidebar-item:hover {
+  background: var(--provider-row-bg-hover);
+}
+
+.provider-sidebar-item--selected {
+  background: var(--provider-row-bg-selected);
+  border-color: var(--provider-row-border-selected);
+}
+
+.provider-sidebar-icon {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  min-width: 18px;
+  text-align: center;
+}
+
+.provider-sidebar-name {
+  flex: 1;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-sidebar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--provider-status-ok);
+  flex-shrink: 0;
+}
+
+.provider-detail {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  background: var(--surface-elevated);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.provider-detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 100px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.provider-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.provider-detail-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.provider-detail-title {
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.provider-detail-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+  font-size: 0.78rem;
+}
+
+.provider-detail-grid dt {
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.provider-detail-grid dd {
+  margin: 0;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.provider-detail-grid dd.error {
+  color: var(--provider-status-error);
+}
+
+.provider-detail-section {
+  margin-bottom: 12px;
+}
+
+.provider-detail-section h4 {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-eyebrow);
+}
+
+.provider-detail-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.provider-detail-section__header h4 {
+  margin-bottom: 0;
+}
+
+.provider-detail-section__header .credential-btn {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+.provider-detail-grid--storage {
+  margin-top: 4px;
+}
+
+@media (max-width: 560px) {
+  .provider-split {
+    gap: 10px;
+  }
+
+  .provider-sidebar {
+    width: 156px;
+  }
+
+  .provider-sidebar-item {
+    padding-inline: 6px;
+  }
+
+  .provider-detail {
+    padding: 10px;
+  }
+}
+
+.provider-usage-bar__track {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--usage-bar-track, rgba(255, 255, 255, 0.08));
+  overflow: hidden;
+}
+
+.provider-usage-bar__fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+
+.provider-detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ── ProviderIcon (Phase 6a) ──────────────────────────────────────── */
+
+.provider-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--provider-icon-bg);
+  box-shadow: inset 0 0 0 1px var(--provider-icon-ring);
+  color: var(--provider-brand, var(--accent));
+  overflow: hidden;
+}
+
+.provider-icon--svg svg {
+  width: 84%;
+  height: 84%;
+  display: block;
+}
+
+.provider-icon--letter {
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: var(--provider-brand, var(--accent));
+  text-transform: none;
+}
+
+/* Near-black brands (TypeSafe, V0, Replicate...) vanish on dark surfaces, so
+   the dark theme uses ProviderIcon's lifted --provider-brand-dark when it sets
+   one. Light scopes, including the tray panel's nested data-theme="light",
+   keep the exact brand color; the light rule comes second so it wins there. */
+[data-theme="dark"] .provider-icon {
+  color: var(--provider-brand-dark, var(--provider-brand, var(--accent)));
+}
+[data-theme="light"] .provider-icon {
+  color: var(--provider-brand, var(--accent));
+}
+
+/* ── Providers sidebar status dot ──────────────────────────────────── */
+
+.providers-sidebar__status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--provider-status-disabled);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
+}
+
+.providers-sidebar__status--ok {
+  background: var(--provider-status-ok);
+}
+
+.providers-sidebar__status--stale {
+  background: var(--provider-status-stale);
+}
+
+.providers-sidebar__status--error {
+  background: var(--provider-status-error);
+}
+
+.providers-sidebar__status--disabled {
+  background: var(--provider-status-disabled);
+}
+
+.providers-sidebar__status--loading {
+  background: var(--provider-status-loading);
+  animation: provider-sidebar-pulse 1.4s ease-in-out infinite;
+}
+
+/* Service-status dot: shown instead of the fetch-status dot while
+   "Check provider status" is on and the provider has a status page. */
+.providers-sidebar__service {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--service-status-gray);
+}
+
+.providers-sidebar__service--none {
+  background: var(--service-status-none);
+}
+
+.providers-sidebar__service--minor {
+  background: var(--service-status-minor);
+}
+
+.providers-sidebar__service--major {
+  background: var(--service-status-major);
+}
+
+.providers-sidebar__service--critical {
+  background: var(--service-status-critical);
+}
+
+@keyframes provider-sidebar-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+
+/* ── Provider detail pane (Phase 6b) ──────────────────────────────── */
+
+.provider-detail-header-block {
+  margin-bottom: 16px;
+}
+
+.provider-detail-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.provider-detail-subtitle {
+  font-size: 0.78rem;
+  color: var(--provider-row-text-secondary);
+}
+
+.provider-detail-empty--error {
+  color: var(--provider-status-error);
+}
+
+.provider-detail-error {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--provider-status-error);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  font-size: 0.82rem;
+}
+
+/* ── Codex multi-account (ADR 0003) ─────────────────────────────────── */
+
+.provider-detail-note {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: var(--provider-status-ok, #4ade80);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.codex-accounts-list {
+  gap: 6px;
+}
+
+.codex-accounts-card {
+  padding: 8px 10px;
+}
+
+.codex-accounts-add {
+  margin-top: 8px;
+}
+
+.codex-usage {
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--provider-row-text-secondary);
+}
+
+.codex-usage--blocked {
+  color: var(--provider-status-error);
+}
+
+/* CodexAccountsSection cards sit in the fixed 720px settings window next to a
+   3-button actions row (~242px). A long account email has no break
+   opportunities, so without containment it overflows the info column and
+   paints over the actions. Ellipsize the info column/title instead, and pin
+   the actions row in place with flex-shrink: 0 + nowrap. */
+.codex-accounts-card .credential-card__info {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-accounts-card .credential-card__info strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-accounts-card .credential-card__actions {
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.provider-usage-bar__fill[data-exhausted="true"] {
+  background: var(--provider-status-error);
+}
+
+.provider-detail-section--deferred {
+  opacity: 0.45;
+  font-size: 0.74rem;
+  color: var(--provider-row-text-secondary);
+  font-style: italic;
+  border: 1px dashed var(--provider-icon-ring);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}
+
+/* ── Phase 6c — cookie source & region pickers ────────────────────── */
+
+.provider-detail-segmented {
+  display: inline-flex;
+  /* Translated options ("Автоматически / Вручную / Отключено") wrap inside the
+     narrow detail pane instead of overflowing it. Shared by the cookie-source
+     and usage-source controls. */
+  flex-wrap: wrap;
+  max-width: 100%;
+  box-sizing: border-box;
+  gap: 2px;
+  padding: 2px;
+  background: var(--provider-row-bg);
+  border: 1px solid var(--provider-icon-ring);
+  border-radius: 8px;
+}
+
+.provider-detail-segmented__option {
+  appearance: none;
+  background: transparent;
+  color: var(--provider-row-text-secondary);
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.provider-detail-segmented__option:hover:not(:disabled) {
+  color: var(--provider-row-text-primary);
+}
+
+.provider-detail-segmented__option.is-active {
+  background: var(--provider-row-bg-active, var(--provider-icon-ring));
+  color: var(--provider-row-text-primary);
+}
+
+.provider-detail-segmented__option:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.provider-detail-helper {
+  margin: 6px 0 0;
+  font-size: 0.76rem;
+  color: var(--provider-row-text-secondary);
+}
+
+.provider-detail-cookie-source__missing .credential-btn {
+  margin-top: 8px;
+}
+
+.provider-detail-select {
+  appearance: none;
+  background: var(--provider-row-bg);
+  color: var(--provider-row-text-primary);
+  border: 1px solid var(--provider-icon-ring);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+  min-width: 220px;
+}
+
+.provider-detail-select:disabled {
+  opacity: 0.55;
+}
+
+.btn.btn--ghost {
+  background: var(--provider-row-bg);
+  color: var(--provider-row-text-primary);
+  border: 1px solid var(--provider-icon-ring);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.btn.btn--ghost:hover:not(:disabled) {
+  background: var(--provider-row-bg-hover);
+}
+
+.btn.btn--ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
