@@ -172,7 +172,7 @@ A new install follows the Windows display language. Pick **System** or a languag
 
 ## Build from source
 
-You need Rust (stable, `x86_64-pc-windows-msvc`), the Visual Studio C++ build tools, Node.js and pnpm. `scripts/dev.ps1` checks for them but installs nothing. Clone from the folder that should hold the repo; the remaining commands run from the cloned repo root:
+You need Rust (stable, `x86_64-pc-windows-msvc`), the Visual Studio C++ build tools, Node.js and pnpm. `scripts/dev.ps1` checks that `cargo` and `pnpm.cmd` are on `PATH` (and `dlltool` on GNU hosts) but installs nothing. Clone from the folder that should hold the repo; the remaining commands run from the cloned repo root:
 
 ```powershell
 git clone https://github.com/nesszer/Win-CodexBar.git
