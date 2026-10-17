@@ -34,186 +34,134 @@
   background: rgba(0, 0, 0, 0.36);
   background-clip: padding-box;
 }
-
-/* ── Menu surface: rounded NSMenu-style panel matching macOS popover ── */
-.menu-surface {
-  width: 100%;
-  min-width: 260px;
-  background: var(--menu-popover-bg);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 1px rgba(0, 0, 0, 0.3);
-  font-size: var(--font-body);
-  line-height: var(--line-tight);
-}
-/* Re-assert tray overrides after the second .menu-surface rule (cascade order) */
-.menu-surface--tray {
-  /* #265: TrayPanel applies CSS `zoom` on this surface, so it lays out in
-     windowWidth/zoom local px; the 260px `min-width` floor from .menu-surface
-     would be multiplied by the zoom on render (→ 390px at 150%) and force a
-     horizontal scrollbar in the 328px tray window. The window's own 300px
-     minimum already covers the floor — let the zoomed surface wrap instead. */
-  min-width: 0;
-}
-.menu-surface--tray {
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-}
-[data-theme="light"] .menu-surface {
-  background: var(--menu-popover-bg);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 0 1px rgba(0, 0, 0, 0.12);
-}
-[data-theme="light"] .menu-surface--tray {
-  border: none;
-  box-shadow: none;
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 
-/* Footer of native-style menu rows (Settings… / About / Quit).
-   Sits flush with the surface's 10/6 padding and reads like an NSMenu
-   item: full-width row, 18px icon column, subtle hover highlight. */
+.menu-surface__header {
+  min-height: 20px;
+  padding: 0;
+}
+.menu-surface__title {
+  font-size: var(--font-caption2);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.menu-surface__brand-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.menu-surface__btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+
 .menu-surface__footer {
   display: flex;
   flex-direction: column;
-  gap: 0;
-  padding: 8px 0 4px;
-  margin-top: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
   flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border-top: none;
+}
+.menu-surface__footer-sep {
+  height: 1px;
+  margin: 5px 14px;
+  background: var(--mac-separator);
 }
 .menu-surface__footer-row {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--mac-row-icon-gap);
   width: 100%;
-  padding: 4px 6px;
+  min-height: var(--mac-menu-row-h);
+  padding: 0 var(--mac-row-pl);
   border: 0;
-  border-radius: 4px;
   background: transparent;
-  color: var(--text-primary);
-  font-size: var(--font-body);
-  font-weight: 400;
+  color: var(--mac-text);
+  font: var(--mac-text-menu);
   text-align: left;
   cursor: pointer;
-  transition: background 0.08s ease;
 }
-/* Footer rows without an SF Symbol icon (Settings / About / Quit on
-   macOS): indent by the same 18px the icon column would occupy so the
-   text aligns with iconified rows above. */
-.menu-surface__footer-row--no-icon {
-  padding-left: calc(6px + 18px + 8px);
+.menu-surface__footer-row--refresh {
+  min-height: var(--mac-row-h);
 }
-.menu-surface__footer-row:hover,
+.menu-surface__footer-row::before {
+  content: "";
+  position: absolute;
+  inset: var(--mac-sel-inset-y) var(--mac-sel-inset-x);
+  z-index: -1;
+  border-radius: var(--mac-sel-r);
+  background: transparent;
+  transition: background-color var(--mac-sel-fade) ease-out;
+}
+.menu-surface__footer-row--refresh::before {
+  inset: 0 5px;
+  border-radius: var(--mac-sel-r-refresh);
+}
+.menu-surface__footer-row:hover:not(:disabled),
 .menu-surface__footer-row:focus-visible {
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--text-primary);
+  color: var(--mac-selection-text);
   outline: none;
 }
-[data-theme="light"] .menu-surface__footer-row:hover,
-[data-theme="light"] .menu-surface__footer-row:focus-visible {
-  background: rgba(0, 0, 0, 0.06);
+.menu-surface__footer-row:hover:not(:disabled)::before,
+.menu-surface__footer-row:focus-visible::before {
+  background: var(--mac-selection-bg);
 }
-.menu-surface__footer-row .menu-surface__footer-icon {
-  width: 18px;
-  display: inline-flex;
-  justify-content: center;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.menu-surface__footer-row:hover .menu-surface__footer-icon,
-.menu-surface__footer-row:focus-visible .menu-surface__footer-icon {
-  color: var(--text-primary);
-}
-.menu-surface__footer-shortcut {
-  margin-left: auto;
-  font-size: var(--font-caption2);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-.menu-surface__footer-row:hover .menu-surface__footer-shortcut,
-.menu-surface__footer-row:focus-visible .menu-surface__footer-shortcut {
-  color: var(--text-secondary);
-}
-
-/* Tray flyout zoom row — sits above Refresh in the footer. A plain `div`
-   (not a nav button), so it opts out of the button hover highlight and
-   instead hosts a Win11-volume-style slider with a fixed-width % readout
-   on the right (tabular nums + fixed width = no jitter while dragging). */
-.menu-surface__footer-zoom {
+.menu-surface__footer-row:disabled {
+  color: var(--mac-text-3);
   cursor: default;
 }
-.menu-surface__footer-zoom:hover,
-.menu-surface__footer-zoom:focus-visible {
-  background: transparent;
+.menu-surface__footer-note {
+  margin: 0;
+  padding: 2px var(--mac-row-pl);
+  color: var(--mac-text-2);
+  font: var(--mac-text-menu);
+  overflow-wrap: anywhere;
 }
-.menu-surface__footer-zoom-value {
-  width: 34px;
+.menu-surface__footer-icon {
+  display: inline-flex;
   flex-shrink: 0;
-  text-align: right;
-  font-size: var(--font-caption2);
-  color: var(--text-muted);
+  width: var(--mac-row-icon);
+  height: var(--mac-row-icon);
+}
+.menu-surface__footer-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.menu-surface__footer-shortcut {
+  min-width: var(--mac-shortcut-w);
+  margin-left: auto;
+  color: var(--mac-text-3);
+  font: var(--mac-text-shortcut);
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
-/* Win11-style range input: thin rounded 4px track, accent fill left of the
-   thumb (painted via the `--zoom-fill` custom property set inline from
-   React — WebKit has no ::fill pseudo), round accent thumb. WebView2 is
-   Chromium-only, so ::-webkit-* pseudos are sufficient. */
-.menu-surface__footer-zoom-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 16px;
-  margin: 0 2px;
-  padding: 0;
+.menu-surface__footer-row:hover:not(:disabled) .menu-surface__footer-shortcut,
+.menu-surface__footer-row:focus-visible .menu-surface__footer-shortcut {
+  color: var(--mac-selection-text);
+}
+/* "Highlight menu cards on hover" off: only Refresh is a hosted menu card
+   upstream; the other footer rows stand in for native items, which always
+   highlight. Keyboard focus keeps its highlight. */
+.menu-surface--hover-highlight-off .menu-surface__footer-row--refresh:hover:not(:disabled):not(:focus-visible) {
+  color: var(--mac-text);
+}
+.menu-surface--hover-highlight-off .menu-surface__footer-row--refresh:hover:not(:disabled):not(:focus-visible)::before {
   background: transparent;
-  cursor: pointer;
 }
-.menu-surface__footer-zoom-slider::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 2px;
-  background: linear-gradient(
-    to right,
-    var(--accent, #0a84ff) 0%,
-    var(--accent, #0a84ff) var(--zoom-fill, 0%),
-    rgba(255, 255, 255, 0.2) var(--zoom-fill, 0%)
-  );
-}
-.menu-surface__footer-zoom-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
-  margin-top: -4px; /* centres the 12px thumb on the 4px track */
-  border-radius: 50%;
-  background: var(--accent, #0a84ff);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.35),
-    0 1px 2px rgba(0, 0, 0, 0.4);
-}
-.menu-surface__footer-zoom-slider:focus-visible {
-  outline: none;
-}
-.menu-surface__footer-zoom-slider:focus-visible::-webkit-slider-thumb {
-  box-shadow:
-    0 0 0 2px var(--accent-muted, rgba(10, 132, 255, 0.25)),
-    0 0 0 1px rgba(255, 255, 255, 0.35);
-}
-[data-theme="light"]
-  .menu-surface__footer-zoom-slider::-webkit-slider-runnable-track {
-  background: linear-gradient(
-    to right,
-    var(--accent, #007aff) 0%,
-    var(--accent, #007aff) var(--zoom-fill, 0%),
-    rgba(0, 0, 0, 0.15) var(--zoom-fill, 0%)
-  );
-}
-[data-theme="light"] .menu-surface__footer-zoom-slider::-webkit-slider-thumb {
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.15),
-    0 1px 2px rgba(0, 0, 0, 0.2);
+.menu-surface--hover-highlight-off .menu-surface__footer-row--refresh:hover:not(:disabled):not(:focus-visible) .menu-surface__footer-shortcut {
+  color: var(--mac-text-3);
 }
 
 /* ── Provider icon grid ──────────────────────────────────────────────
@@ -351,6 +299,28 @@
   background: rgba(0, 0, 0, 0.10);
 }
 
+.provider-grid__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.provider-grid__dot[data-status="ok"] {
+  background: #34c759;
+}
+.provider-grid__dot[data-status="warning"] {
+  background: #ffd60a;
+}
+.provider-grid__dot[data-status="exhausted"] {
+  background: #ff9f0a;
+}
+.provider-grid__dot[data-status="error"] {
+  background: #ff453a;
+}
+.provider-grid__item--active .provider-grid__dot {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
 [data-theme="light"] .provider-grid__item:hover {
   background: rgba(0, 0, 0, 0.06);
 }
@@ -365,16 +335,6 @@
   color: var(--text-primary);
 }
 
-/* ── Menu card / metric row tightening ────────────────────────────── */
-.menu-card__name {
-  letter-spacing: -0.005em;
-}
-.menu-card__email,
-.menu-card__plan,
-.menu-card__subtitle {
-  font-size: var(--font-caption);
-  font-weight: 400;
-}
 .menu-card__group-title,
 .menu-metric__title {
   font-size: var(--font-body);
@@ -459,19 +419,6 @@
   font-size: var(--font-caption);
   font-variant-numeric: tabular-nums;
 }
-.menu-metric__bar,
-.menu-card__pace-track {
-  height: var(--bar-height);
-  border-radius: var(--bar-radius);
-  background: var(--usage-bar-track);
-  overflow: hidden;
-}
-.menu-metric__bar-fill,
-.menu-card__pace-fill {
-  height: 100%;
-  border-radius: var(--bar-radius);
-  transition: width 0.3s ease;
-}
 
 /* Upstream UsageProgressBar uses the provider brand color (which the
    chart palette covers) but the menu defaults to a green-when-healthy
@@ -489,10 +436,16 @@
   --usage-bar-exhausted: #ff3b30;
 }
 
-.menu-card__cost-line,
-.menu-card__pace-label,
-.menu-card__pace-eta,
-.menu-card__pace-ok {
+.menu-metric__pct,
+.menu-metric__reset,
+.menu-metric__status,
+.menu-metric__detail {
   font-size: var(--font-caption);
 }
 
+/* ── Card stack: spacing between cards (no visible divider) ───── */
+.menu-stack__sep {
+  height: 0;
+  margin: 4px 0;
+  background: none;
+}

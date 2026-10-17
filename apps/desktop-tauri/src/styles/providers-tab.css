@@ -32,6 +32,11 @@
   margin-bottom: 12px;
 }
 
+.provider-detail-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
 .provider-detail-title {
   flex: 1;
   color: var(--text-primary);
@@ -102,32 +107,17 @@
     gap: 10px;
   }
 
-}
+  .provider-sidebar {
+    width: 156px;
+  }
 
-.provider-usage-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-bottom: 8px;
-}
+  .provider-sidebar-item {
+    padding-inline: 6px;
+  }
 
-.provider-usage-bar__header {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.72rem;
-}
-
-.provider-usage-bar__label {
-  color: var(--text-secondary);
-}
-
-.provider-usage-bar__pct {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.provider-usage-bar__status {
-  color: var(--text-secondary);
+  .provider-detail {
+    padding: 10px;
+  }
 }
 
 .provider-usage-bar__track {
@@ -142,12 +132,6 @@
   border-radius: 3px;
   background: var(--accent);
   transition: width 0.3s;
-}
-
-.provider-usage-bar__reset,
-.provider-usage-bar__detail {
-  font-size: 0.68rem;
-  color: var(--text-muted);
 }
 
 .provider-detail-actions {
@@ -184,150 +168,18 @@
   text-transform: none;
 }
 
-/* ── Providers sidebar (Phase 6a) ─────────────────────────────────── */
-
-.providers-sidebar-shell {
-  width: 244px;
-  flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  height: 100%;
-  min-height: 0;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+/* Near-black brands (TypeSafe, V0, Replicate...) vanish on dark surfaces, so
+   the dark theme uses ProviderIcon's lifted --provider-brand-dark when it sets
+   one. Light scopes, including the tray panel's nested data-theme="light",
+   keep the exact brand color; the light rule comes second so it wins there. */
+[data-theme="dark"] .provider-icon {
+  color: var(--provider-brand-dark, var(--provider-brand, var(--accent)));
+}
+[data-theme="light"] .provider-icon {
+  color: var(--provider-brand, var(--accent));
 }
 
-.providers-sidebar-search {
-  position: relative;
-  padding: 8px 10px 6px;
-}
-
-.providers-sidebar-search__input {
-  width: 100%;
-  height: 30px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.20);
-  color: var(--text);
-  font-size: var(--font-body);
-  outline: none;
-  padding: 0 30px 0 10px;
-}
-
-.providers-sidebar-search__input:focus-visible {
-  border-color: var(--provider-row-border-selected);
-  box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.22);
-}
-
-.providers-sidebar-search__clear {
-  position: absolute;
-  right: 16px;
-  top: 13px;
-  width: 20px;
-  height: 20px;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-}
-
-.providers-sidebar-search__clear:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text);
-}
-
-.providers-sidebar {
-  flex: 1;
-  min-height: 0;
-  box-sizing: border-box;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  scrollbar-width: auto;
-  scrollbar-color: rgba(255, 255, 255, 0.45) rgba(255, 255, 255, 0.08);
-  list-style: none;
-  margin: 0;
-  padding: 4px 10px 20px 4px;
-  scroll-padding-bottom: 20px;
-}
-
-.providers-sidebar__empty {
-  padding: 16px 12px;
-  color: var(--muted);
-  font-size: var(--font-body);
-  text-align: center;
-}
-
-.providers-sidebar__row {
-  position: relative;
-  display: grid;
-  align-items: center;
-  gap: 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  user-select: none;
-  border: 1px solid transparent;
-  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
-  outline: none;
-}
-
-.providers-sidebar__row:hover {
-  background: var(--provider-row-bg-hover);
-}
-
-.providers-sidebar__row:focus-visible {
-  border-color: var(--provider-row-border-selected);
-  box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.25);
-}
-
-.providers-sidebar__row--selected {
-  background: var(--provider-row-bg-selected);
-  border-color: var(--provider-row-border-selected);
-}
-
-.providers-sidebar__row--selected::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 10px;
-  bottom: 10px;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--provider-row-accent-selected);
-}
-
-.providers-sidebar__row--disabled .providers-sidebar__name,
-.providers-sidebar__row--disabled .providers-sidebar__subtitle {
-  color: var(--provider-row-text-disabled);
-}
-
-.providers-sidebar__row--dragging {
-  opacity: 0.55;
-}
-
-.providers-sidebar__row--drop {
-  box-shadow: inset 0 2px 0 0 var(--provider-row-drop-outline);
-}
-
-.providers-sidebar__row--reveal {
-  animation: provider-sidebar-reveal 220ms ease-out both;
-}
-
-@keyframes provider-sidebar-reveal {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
+/* ── Providers sidebar status dot ──────────────────────────────────── */
 
 .providers-sidebar__status {
   width: 6px;
@@ -358,109 +210,35 @@
   animation: provider-sidebar-pulse 1.4s ease-in-out infinite;
 }
 
+/* Service-status dot: shown instead of the fetch-status dot while
+   "Check provider status" is on and the provider has a status page. */
+.providers-sidebar__service {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--service-status-gray);
+}
+
+.providers-sidebar__service--none {
+  background: var(--service-status-none);
+}
+
+.providers-sidebar__service--minor {
+  background: var(--service-status-minor);
+}
+
+.providers-sidebar__service--major {
+  background: var(--service-status-major);
+}
+
+.providers-sidebar__service--critical {
+  background: var(--service-status-critical);
+}
+
 @keyframes provider-sidebar-pulse {
   0%, 100% { opacity: 0.5; }
   50%      { opacity: 1; }
-}
-
-.providers-sidebar__text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 1px;
-}
-
-/* Long names and translated status lines ("Отключено — авто") wrap to a
-   second line instead of ellipsizing in the narrow sidebar; the row's
-   title attribute carries the full text if even two lines are not enough. */
-.providers-sidebar__name {
-  color: var(--provider-row-text-primary);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-
-.providers-sidebar__subtitle-primary {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-
-.providers-sidebar__subtitle {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  color: var(--provider-row-text-secondary);
-  line-height: 1.25;
-}
-
-.providers-sidebar__subtitle-secondary {
-  color: var(--provider-row-text-secondary);
-  opacity: 0.8;
-  font-variant-numeric: tabular-nums;
-}
-
-.providers-sidebar__handle {
-  opacity: 0;
-  font-size: 0.7rem;
-  color: var(--provider-row-text-secondary);
-  cursor: grab;
-  letter-spacing: -2px;
-  transition: opacity 120ms ease;
-}
-
-.providers-sidebar__row:hover .providers-sidebar__handle,
-.providers-sidebar__row--selected .providers-sidebar__handle,
-.providers-sidebar__row--dragging .providers-sidebar__handle {
-  opacity: 0.7;
-}
-
-.providers-sidebar__reorder-controls {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.providers-sidebar__reorder-button {
-  width: 18px;
-  height: 16px;
-  display: inline-grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--provider-row-text-secondary);
-  cursor: pointer;
-  font-size: 0.62rem;
-  line-height: 1;
-  opacity: 0.72;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
-}
-
-.providers-sidebar__reorder-button:hover:not(:disabled),
-.providers-sidebar__reorder-button:focus-visible {
-  background: var(--surface-card-hover);
-  border-color: var(--provider-row-border-selected);
-  color: var(--provider-row-text-primary);
-  opacity: 1;
-  outline: none;
-}
-
-.providers-sidebar__reorder-button:disabled {
-  cursor: default;
-  opacity: 0.2;
-}
-
-.providers-sidebar__checkbox {
-  margin: 0;
-  cursor: pointer;
 }
 
 /* ── Provider detail pane (Phase 6b) ──────────────────────────────── */
@@ -556,32 +334,6 @@
   white-space: nowrap;
 }
 
-.provider-detail-pace__stage {
-  font-size: 0.86rem;
-  font-weight: 600;
-  color: var(--provider-row-text-primary);
-}
-
-.provider-detail-pace__stage[data-stage="far_behind"],
-.provider-detail-pace__stage[data-stage="behind"] {
-  color: var(--provider-status-error);
-}
-
-.provider-detail-pace__stage[data-stage="far_ahead"],
-.provider-detail-pace__stage[data-stage="ahead"] {
-  color: var(--provider-status-stale);
-}
-
-.provider-detail-pace__aux {
-  font-size: 0.78rem;
-  color: var(--provider-row-text-secondary);
-  margin-top: 2px;
-}
-
-.provider-usage-bar__pct[data-exhausted="true"] {
-  color: var(--provider-status-error);
-}
-
 .provider-usage-bar__fill[data-exhausted="true"] {
   background: var(--provider-status-error);
 }
@@ -628,6 +380,12 @@
   cursor: default;
 }
 
+.provider-detail-helper {
+  margin: 6px 0 0;
+  font-size: 0.76rem;
+  color: var(--provider-row-text-secondary);
+}
+
 .provider-detail-cookie-source__missing .credential-btn {
   margin-top: 8px;
 }
@@ -666,4 +424,3 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
-

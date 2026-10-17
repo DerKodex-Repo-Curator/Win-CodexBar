@@ -11,6 +11,7 @@ export const SHELL_LOCALE_KEYS = [
   "CredsOpenFolderAction",
   "CredsRefreshDetectionAction",
   "CredsSavePathAction",
+  "CredsBrowseAction",
   "CredsGeminiCliLabel",
   "CredsGeminiCliHelperPrefix",
   "CredsGeminiCliSetupAction",
@@ -25,6 +26,8 @@ export const SHELL_LOCALE_KEYS = [
   "CredsJetBrainsHelperMissing",
   "CredsJetBrainsCustomPathLabel",
   "CredsJetBrainsCustomPathPlaceholder",
+  "CredsJetBrainsSelectLabel",
+  "CredsJetBrainsAutoDetectOption",
   "CredsKiroLabel",
   "CredsKiroHelperAvailablePrefix",
   "CredsKiroHelperMissing",
@@ -49,11 +52,19 @@ export const SHELL_LOCALE_KEYS = [
   "TokenAccountGithubLoginButton",
   "TokenAccountEmpty",
   "TokenAccountLabelPlaceholder",
+  "TokenAccountProviderLabel",
+  "TokenAccountProviderPlaceholder",
   "TokenAccountAddedPrefix",
   "TokenAccountUsedPrefix",
+  "TokenAccountTabHint",
+  "TokenAccountNoSupported",
   "TokenAccountInlineSummary",
 
   // Phase 9 — Tray / pop-out pace badges + countdowns
+  "TrayPaceBadgeSlow",
+  "TrayPaceBadgeSteady",
+  "TrayPaceBadgeRacing",
+  "TrayPaceBadgeBurning",
   "TrayResetsInLabel",
   "TrayResetsDueNow",
 
@@ -99,6 +110,12 @@ export const SHELL_LOCALE_KEYS = [
   "DiagnosticsCopyButton",
   "DiagnosticsCopied",
   "DiagnosticsCopyFailed",
+
+  // Tauri desktop shell — Cookies tab hints / placeholder
+  "SavedCookiesHint",
+  "ImportFromBrowserHint",
+  "NoBrowsersDetectedHint",
+  "CookieHeaderValuePlaceholder",
 
   // Tauri desktop shell — API key section fields
   "ApiKeyTitle",
@@ -163,6 +180,14 @@ export const SHELL_LOCALE_KEYS = [
   "LLMManBaseUrlLabel",
   "LLMManBaseUrlPlaceholder",
   "LLMManBaseUrlHelp",
+  "ExaApiTitle",
+  "ExaApiKeyIdLabel",
+  "ExaApiKeyIdPlaceholder",
+  "ExaApiKeyIdHelp",
+  "CosmicProjectIdTitle",
+  "CosmicProjectIdLabel",
+  "CosmicProjectIdPlaceholder",
+  "CosmicProjectIdHelp",
 
   // Tray icon visibility (Windows 11 hidden-icons overflow)
   "PromoteTrayIconLabel",
@@ -171,6 +196,7 @@ export const SHELL_LOCALE_KEYS = [
 
   // Mistral PAYG monthly spend (#2821, #2947)
   "MistralMonthlySpend",
+  "MistralMonthlySpendHelper",
   // Mistral Monthly Plan menu bar metric (upstream 0.70.0 #4072)
   "MetricMonthlyPlan",
 
@@ -193,6 +219,7 @@ export const SHELL_LOCALE_KEYS = [
   "ProviderAutoResumeAfterQuotaResetHelper",
 
   // Recorded remaining-quota burndown (upstream 0.70.0 #4085)
+  "BurndownChartTitle",
   "BurndownChartAriaLabel",
 
   // History window for local cost surfaces (upstream 0.67.0 reporting periods)
@@ -212,5 +239,7 @@ export const SHELL_LOCALE_KEYS = [
   "OverviewSpendPeriodTitle",
   "UsageSpendModelsPeriodCaption",
   "UsageSpendProjectsPeriodCaption",
+  "UsageSpendIndependentChats",
+  "UsageSpendIndependentChat",
 
 ] as const;

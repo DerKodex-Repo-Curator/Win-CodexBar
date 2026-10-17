@@ -78,7 +78,6 @@ export function setupMenuCardTests() {
         PanelFiveHours: "5h",
         PanelBlockedByMonthlyLimit: "Blocked by monthly limit",
         PanelOnPaceBudget: "On-pace budget",
-        PanelReserveSuffix: "in reserve",
         PanelPeriodCost: "{} cost",
         PanelPeriodTokens: "{} tokens",
         CostPeriodShortMonthToDate: "MTD",

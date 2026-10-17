@@ -1,3 +1,5 @@
+import type { SubscriptionMetadataSnapshot } from "./usage";
+
 import type { Language } from "./settings";
 import type {
   CostSnapshotBridge,
@@ -67,6 +69,8 @@ export interface AppInfoBridge {
   name: string;
   version: string;
   buildNumber: string;
+  /** UTC build date, YYYY-MM-DD. */
+  buildDate?: string;
   updateChannel: string;
   tagline: string;
 }
@@ -267,6 +271,8 @@ export interface ProviderDetail {
   inventory?: ProviderInventoryItem[];
   /** Provider-specific display rows; never used as quota math or persistence. */
   displayDetails?: ProviderDisplayDetail[];
+  /** Plan renewal / expiry dates for the usage preview. */
+  subscription?: SubscriptionMetadataSnapshot | null;
 
   cost: CostSnapshotBridge | null;
   pace: PaceSnapshot | null;
@@ -306,4 +312,3 @@ export interface RegionOption {
   value: string;
   label: string;
 }
-

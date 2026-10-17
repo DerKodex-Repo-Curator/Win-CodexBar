@@ -1,3 +1,5 @@
+import type { LocaleKey } from "../../i18n/keys";
+
 // ── Provider usage snapshot types ────────────────────────────────────
 
 /**
@@ -19,10 +21,16 @@ export interface RateWindowSnapshot {
   isInformational?: boolean;
   /** `resetDescription` is a detail line (for example spend amounts), not reset wording. */
   descriptionIsDetail?: boolean;
+  /** The reset is the next quota regeneration: the card says "Regenerates in" (Synthetic). */
+  resetRegenerates?: boolean;
+  /** The window feeds the tray and float bar only; the card draws no row for it. */
+  hiddenOnCard?: boolean;
   reservePercent: number | null;
   reserveDescription: string | null;
   reserveWillLastToReset?: boolean;
   reserveEtaSeconds?: number | null;
+  /** Pace of this window; absent when the provider's pace is not authoritative or the window is informational. */
+  pace?: WindowPaceSnapshot | null;
   /** Set while a longer exhausted pool blocks this window; raw percentages stay the provider data. */
   monthlyLimitBlock?: MonthlyLimitBlock | null;
 }
@@ -52,10 +60,39 @@ export interface CostSnapshotBridge {
   daily?: CostDailyPoint[];
   /** Provider-metered spend that is itself a primary usage signal. */
   alwaysVisible?: boolean;
+  /** The primary meter already shows this cap, so the cost block omits its bar. */
+  foldedIntoPrimary?: boolean;
+  /** Provider-owned cost-block title (upstream `ProviderCostMenuCardStyle`); absent keeps the shared title. */
+  titleKey?: LocaleKey;
+}
+
+export type PaceStage =
+  | "on_track"
+  | "slightly_ahead"
+  | "ahead"
+  | "far_ahead"
+  | "slightly_behind"
+  | "behind"
+  | "far_behind";
+
+/** Pace of one rate window. A positive `deltaPercent` is a deficit, a negative one a reserve. */
+export interface WindowPaceSnapshot {
+  stage: PaceStage;
+  deltaPercent: number;
+  expectedUsedPercent: number;
+  actualUsedPercent: number;
+  etaSeconds?: number | null;
+  willLastToReset: boolean;
+  /**
+   * Scored against the provider's reset window (upstream
+   * `ProviderPaceCapability.resetWindowPace`). Card lanes show it as weekly
+   * pace whatever the window's length. Omitted when false.
+   */
+  resetWindow?: boolean;
 }
 
 export interface PaceSnapshot {
-  stage: "on_track" | "slightly_ahead" | "ahead" | "far_ahead" | "slightly_behind" | "behind" | "far_behind";
+  stage: PaceStage;
   deltaPercent: number;
   willLastToReset: boolean;
   etaSeconds: number | null;
@@ -94,6 +131,9 @@ export interface SubscriptionMetadataSnapshot {
   startsAt: string | null;
   expiresAt: string | null;
   renewsAt: string | null;
+  /** Calendar-only dates are UTC midnight; format them in UTC. */
+  renewsAtIsDateOnly?: boolean;
+  expiresAtIsDateOnly?: boolean;
 }
 
 export interface ProviderInventoryItem {
@@ -123,6 +163,8 @@ export interface ProviderUsageItem {
   id: string;
   title: string;
   available: boolean;
+  /** Also suppressed while Cost summary display is Hidden. */
+  requiresCostSummary?: boolean;
 }
 /** Backend-classified provider availability state (camelCase serde on the bridge). */
 export type ProviderStateKind =
@@ -141,6 +183,8 @@ export interface ProviderUsageSnapshot {
   primaryLabel?: string;
   secondary: RateWindowSnapshot | null;
   secondaryLabel?: string;
+  /** Provider-chosen locale key that names the secondary lane (wins over `secondaryLabel`). */
+  secondaryLabelKey?: LocaleKey | null;
   modelSpecific: RateWindowSnapshot | null;
   tertiary: RateWindowSnapshot | null;
   /** F5: duration-cadence label for tertiary ("monthly", "weekly" etc.) */
@@ -163,6 +207,11 @@ export interface ProviderUsageSnapshot {
   cost: CostSnapshotBridge | null;
   planName: string | null;
   accountEmail: string | null;
+  /**
+   * Active token-account label, shown in the header only when the provider
+   * reports no email (upstream account fallback). Never a scoping key.
+   */
+  accountLabel?: string | null;
   subscription?: SubscriptionMetadataSnapshot | null;
   sourceLabel: string;
   /** Backend proof of a live successful Claude CLI quota fetch; only true is proof. */
@@ -177,6 +226,8 @@ export interface ProviderUsageSnapshot {
   wayfinderUsage?: WayfinderUsageSnapshot | null;
   /** Per-UTC-day OpenAI Admin API history; only the `openaiapi` Admin path sets it. */
   openAiApiUsage?: OpenAiApiUsageSnapshot | null;
+  /** Last-hour Tokens/min grid; only the `openaiapi` Admin path sets it. */
+  throughput?: ProviderThroughputSnapshot | null;
   sessionEquivalentForecast?: SessionEquivalentForecastSnapshot | null;
   /** Recorded remaining-quota burndown; Codex and Claude only. */
   quotaBurndown?: QuotaBurndownSnapshot | null;
@@ -209,6 +260,8 @@ export interface WayfinderUsageSnapshot {
   unit: string;
   priced: boolean;
   routes: WayfinderRouteSummary[];
+  /** Mean router decision latency in ms, from the gateway's /metrics. */
+  avgDecisionMs?: number;
 }
 
 /** Line item cost for one UTC day; descending by cost, then name. */
@@ -254,6 +307,68 @@ export interface OpenAiApiUsageSnapshot {
   daily: OpenAiApiDailyUsageSnapshot[];
 }
 
+/** One minute of the Tokens/min grid. */
+export interface ThroughputMinuteSnapshot {
+  /** Minute start, epoch seconds. */
+  start: number;
+  totalTokens: number;
+  requests: number;
+  /** After the reporting frontier: not reported yet, never a real zero or a peak. */
+  isPending: boolean;
+}
+
+/** Per-model throughput, ranked by reported volume, then pending volume, then name. */
+export interface ThroughputModelSnapshot {
+  name: string;
+  latestTpm: number;
+  peakTpm: number;
+  totalTokens: number;
+  /** Peak non-pending tokens that count toward a rate limit (Batch API excluded). */
+  peakLimitCountedTokens: number;
+  /** Limit-counted tokens aligned with `ProviderThroughputSnapshot.minutes`. */
+  limitCountedTokensByMinute: number[];
+}
+
+export interface ProviderThroughputSnapshot {
+  /** Regular ascending one-minute grid. */
+  minutes: ThroughputMinuteSnapshot[];
+  /** Newest complete minute with reported traffic, epoch seconds. */
+  frontier: number | null;
+  latestTokensPerMinute: number | null;
+  peakTokensPerMinute: number;
+  peakAt: number | null;
+  fiveMinuteAverageTokensPerMinute: number;
+  models: ThroughputModelSnapshot[];
+  windowMinutes: number;
+  /** Epoch seconds. */
+  fetchedAt: number;
+  /** Project scope; `null` covers the whole organization (only then can limits apply). */
+  projectId: string | null;
+}
+
+/** Manual organization limit for one model (OpenAI API Live Usage, upstream #4495). */
+export interface ModelRateLimitSnapshot {
+  model: string;
+  tokensPerMinute: number;
+  /** `null` or absent means no requests-per-minute limit. */
+  requestsPerMinute?: number | null;
+}
+
+export interface OrgModelRateLimitSnapshot {
+  model: string;
+  tokensPerMinute: number;
+  requestsPerMinute: number | null;
+}
+
+/** Project caps read across the organization, sorted by model ID. */
+export interface OrgRateLimitsSnapshot {
+  byModel: OrgModelRateLimitSnapshot[];
+  projectsSampled: number;
+  truncated: boolean;
+  /** Epoch seconds. */
+  fetchedAt: number;
+}
+
 export interface RefreshCompletePayload {
   providerCount: number;
   errorCount: number;
@@ -268,4 +383,3 @@ export interface CredentialStorageStatus {
   apiKeys: string;
   tokenAccounts: string;
 }
-

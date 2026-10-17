@@ -84,77 +84,6 @@
   background: #e81123;
   color: #fff;
 }
-.settings-tabs {
-  display: flex;
-  margin: 0 0 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 0;
-  /* `safe`: when long translations overflow, start-align instead of pushing the
-     first tabs past the left edge where scrolling can't reach them. */
-  justify-content: safe center;
-  overflow-x: auto;
-  /* Only shows when the tabs still overflow (very narrow window). */
-  scrollbar-width: thin;
-}
-[data-theme="light"] .settings-tabs {
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0));
-}
-.settings-tab {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  /* Shrink before overflowing: multi-word labels wrap to two lines. */
-  flex: 0 1 auto;
-  min-width: 56px;
-  border-radius: 6px;
-  white-space: normal;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 0.65rem;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: 0;
-  text-transform: none;
-  transition: background 0.12s ease, color 0.12s ease;
-  cursor: pointer;
-}
-.settings-tab__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  font-size: 16px;
-  line-height: 1;
-  color: inherit;
-}
-.settings-tab__icon > svg {
-  width: 16px;
-  height: 16px;
-  display: block;
-}
-
-.settings-tab__label {
-  display: block;
-  line-height: 1.1;
-  text-align: center;
-}
-.settings-tab:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
-}
-[data-theme="light"] .settings-tab:hover {
-  background: rgba(0, 0, 0, 0.05);
-}
-.settings-tab--active {
-  font-weight: 500;
-}
-[data-theme="light"] .settings-tab--active {
-  background: rgba(10, 132, 255, 0.12);
-  color: var(--accent);
-}
 
 /* ── Settings body container: padded, centered, capped at 560px ─── */
 .settings-body {
@@ -165,10 +94,6 @@
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-}
-.settings-body--providers {
-  max-width: 100%;
-  overflow: clip;
 }
 .settings-status {
   max-width: 560px;
@@ -371,40 +296,6 @@
   border-color: var(--accent);
 }
 
-/* ── Provider sidebar (Preferences › Providers) ───────────────────── */
-/* provider-split consolidated above (line ~1765) */
-/* providers-sidebar overrides consolidated above (line ~1981) */
-.providers-sidebar::-webkit-scrollbar {
-  width: 10px;
-}
-.providers-sidebar::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 5px;
-  margin: 4px 0;
-}
-.providers-sidebar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.45);
-  border-radius: 5px;
-}
-.providers-sidebar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.65);
-}
-[data-theme="light"] .providers-sidebar-shell {
-  background: rgba(0, 0, 0, 0.025);
-  border: 1px solid rgba(0, 0, 0, 0.10);
-}
-.providers-sidebar__row {
-  grid-template-columns: 12px var(--icon-sidebar) 1fr auto auto auto;
-  padding: 6px 8px;
-}
-.providers-sidebar__name {
-  font-size: var(--font-body);
-  font-weight: 500;
-}
-.providers-sidebar__subtitle {
-  font-size: var(--font-caption);
-}
-
 /* ── Provider detail pane ─────────────────────────────────────────── */
 .provider-detail {
   background: var(--surface-elevated);
@@ -527,3 +418,16 @@
   align-items: center;
 }
 
+/* ── Refresh icon spin animation reused by header button ──────────── */
+.menu-surface__btn .spin {
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ── Reduce visual harshness of the menu summary line ─────────────── */
+.menu-surface__summary {
+  font-size: var(--font-caption);
+  color: var(--text-muted);
+  font-weight: 400;
+  padding: 2px 14px 0;
+}

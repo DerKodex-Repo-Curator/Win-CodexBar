@@ -2,4 +2,4 @@
 export type * from "./bridge/settings";
 export type * from "./bridge/usage";
 export type * from "./bridge/providers";
-export type * from "./bridge/codexAccounts";
+export * from "./bridge/codexAccounts";

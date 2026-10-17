@@ -1,3 +1,4 @@
+import { makeRateWindow as rateWindow } from "../../../../test/fixtures";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderDetail } from "../../../../types/bridge";
@@ -190,12 +191,12 @@ describe("MenuBarMetricSection", () => {
     expect(screen.getByRole("combobox")).toHaveValue("extraUsage");
   });
 
-  it("offers only Automatic for Aixy, even with extra budget windows", () => {
+  it("hides the picker for Aixy, which offers only Automatic", () => {
     const aixy = provider();
     aixy.id = "aixy";
     aixy.displayName = "Aixy";
-    aixy.weekly = makeRateWindow(40);
-    render(
+    aixy.weekly = rateWindow(40);
+    const { container } = render(
       <MenuBarMetricSection
         provider={aixy}
         providerMetrics={{ aixy: "weekly" }}
@@ -205,9 +206,7 @@ describe("MenuBarMetricSection", () => {
       />,
     );
 
-    const options = screen.getAllByRole("option").map((option) => option.textContent);
-    expect(options).toEqual(["Automatic"]);
-    expect(screen.getByRole("combobox")).toHaveValue("automatic");
+    expect(container.innerHTML).toBe("");
   });
 it("offers the provider-declared lane labels in the metric picker", () => {
     const base = provider(false);

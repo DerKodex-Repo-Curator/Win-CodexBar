@@ -132,7 +132,6 @@ export function setupTrayPanelTests() {
         PanelShowAllProviders: "Show all providers",
         PanelShowFewerProviders: "Show fewer providers",
         PanelUsedSuffix: "used",
-        PanelZoom: "Zoom",
       }),
     );
     eventMocks.listen.mockImplementation(

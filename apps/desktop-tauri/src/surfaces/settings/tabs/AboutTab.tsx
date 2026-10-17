@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { useLocale } from "../../../hooks/useLocale";
 import { useUpdateState } from "../../../hooks/useUpdateState";
 import { getAppInfo, openExternalUrl } from "../../../lib/tauri";
-import { SettingSelect, SettingToggle } from "../../../components/FormControls";
-import type { AppInfoBridge } from "../../../types/bridge";
+import { Field, Select, SettingsGroup, Toggle } from "../../../components/FormControls";
+import type { AppInfoBridge, UpdateChannel } from "../../../types/bridge";
 import type { LocaleKey } from "../../../i18n/keys";
 import type { TabProps } from "../settingsTabs";
 import codexbarIcon from "../../../assets/codexbar-icon.png";
@@ -23,6 +23,10 @@ const ABOUT_LINKS: ReadonlyArray<{ labelKey: LocaleKey; url: string }> = [
   {
     labelKey: "AboutLinkOriginalProject",
     url: "https://github.com/steipete/CodexBar",
+  },
+  {
+    labelKey: "SubmitIssue",
+    url: SUBMIT_ISSUE_URL,
   },
 ];
 
@@ -69,84 +73,69 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
   const copyrightAfter = t("AboutCopyrightAfter");
 
   return (
-    <section className="settings-section about-section">
-      <div className="about-header">
+    <div className="about-section">
+      <div className="about-hero">
         <img className="about-icon" src={codexbarIcon} alt={t("AppName")} />
-        <div className="about-title-block">
-          <h2 className="about-title">{appInfo.name}</h2>
-          <p className="about-version">
-            {t("Version")} {appInfo.version}
-            {appInfo.buildNumber !== "dev" && ` (${appInfo.buildNumber})`}
-          </p>
-          <p className="about-tagline">{appInfo.tagline}</p>
-        </div>
-      </div>
-
-      <div className="about-links">
-        {ABOUT_LINKS.map((link) => (
-          <button
-            key={link.url}
-            type="button"
-            className="about-link"
-            onClick={() => openAboutLink(link.url)}
-          >
-            {t(link.labelKey)}
-          </button>
-        ))}
-      </div>
-      <button
-        type="button"
-        className="about-link"
-        onClick={() => openAboutLink(SUBMIT_ISSUE_URL)}
-      >
-        {t("SubmitIssue")}
-      </button>
-      {linkError && (
-        <p className="about-update-msg">
-          {t("ErrorPrefix")} {linkError}
+        <h2 className="about-hero__name">{appInfo.name}</h2>
+        <p className="about-hero__line">
+          {t("Version")} {appInfo.version}
+          {appInfo.buildNumber !== "dev" && ` (${appInfo.buildNumber})`}
         </p>
-      )}
+        {appInfo.buildDate && (
+          <p className="about-hero__line">
+            {t("AboutBuilt").replace("{}", appInfo.buildDate)}
+          </p>
+        )}
+        <p className="about-hero__line">{appInfo.tagline}</p>
+      </div>
 
-      <div className="about-divider" />
-
-      <div className="about-update-controls">
-        <SettingToggle
-          ctl={ctl}
-          field="autoDownloadUpdates"
+      <SettingsGroup title={t("UpdatesTitle")}>
+        <Field
           label={t("AutoDownloadUpdates")}
           description={t("AutoDownloadUpdatesHelper")}
-        />
-
-        <div className="about-channel-row">
-          <SettingSelect
-            ctl={ctl}
-            field="updateChannel"
-            label={t("UpdateChannelChoice")}
+        >
+          <Toggle
+            variant="switch"
+            checked={settings.autoDownloadUpdates}
+            ariaLabel={t("AutoDownloadUpdates")}
+            disabled={saving}
+            onChange={(v) => set({ autoDownloadUpdates: v })}
+          />
+        </Field>
+        <Field
+          label={t("UpdateChannelChoice")}
+          description={t("UpdateChannelChoiceHelper")}
+        >
+          <Select
+            variant="menu"
+            value={settings.updateChannel}
+            disabled={saving}
+            ariaLabel={t("UpdateChannelChoice")}
             options={[
               { value: "stable", label: t("UpdateChannelStableOption") },
               { value: "beta", label: t("UpdateChannelBetaOption") },
             ]}
+            onChange={(v) => set({ updateChannel: v as UpdateChannel })}
           />
-          <p className="about-channel-description">
-            {t("UpdateChannelChoiceHelper")}
-          </p>
+        </Field>
+        <div className="settings-group__row settings-group__row--split">
+          <span className="about-update-msg">
+            {t("Version")} {appInfo.version}
+          </span>
+          <button
+            type="button"
+            className="credential-btn"
+            disabled={isBusy}
+            onClick={handleCheck}
+          >
+            {updateState.status === "checking"
+              ? t("AboutChecking")
+              : t("AboutCheckForUpdates")}
+          </button>
         </div>
-      </div>
-
-      <div className="about-actions">
-        <button
-          type="button"
-          className="credential-btn credential-btn--primary"
-          disabled={isBusy}
-          onClick={handleCheck}
-        >
-          {updateState.status === "checking"
-            ? t("AboutChecking")
-            : t("AboutCheckForUpdates")}
-        </button>
 
         {updateState.status === "available" && (
-          <div className="about-update-row">
+          <div className="settings-group__row settings-group__row--split">
             <span className="about-update-msg">
               {t("UpdateAvailableMessage").replace(
                 "{}",
@@ -170,15 +159,17 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
         )}
 
         {updateState.status === "downloading" && (
-          <span className="about-update-msg">
-            {t("UpdateDownloading")}
-            {updateState.progress != null &&
-              ` ${Math.round(updateState.progress * 100)}%`}
-          </span>
+          <div className="settings-group__row">
+            <span className="about-update-msg">
+              {t("UpdateDownloading")}
+              {updateState.progress != null &&
+                ` ${Math.round(updateState.progress * 100)}%`}
+            </span>
+          </div>
         )}
 
         {updateState.status === "ready" && (
-          <div className="about-update-row">
+          <div className="settings-group__row settings-group__row--split">
             <span className="about-update-msg">{t("UpdateReady")}</span>
             {updateState.canApply ? (
               <button
@@ -197,15 +188,44 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
         )}
 
         {updateState.status === "error" && (
-          <span className="about-update-msg">
-            {t("ErrorPrefix")} {updateState.error}
-          </span>
+          <div className="settings-group__row">
+            <span className="about-update-msg">
+              {t("ErrorPrefix")} {updateState.error}
+            </span>
+          </div>
         )}
 
         {updateState.status === "idle" && hasChecked && (
-          <span className="about-update-msg">{t("AboutUpToDate")}</span>
+          <div className="settings-group__row">
+            <span className="about-update-msg">{t("AboutUpToDate")}</span>
+          </div>
         )}
-      </div>
+      </SettingsGroup>
+
+      <SettingsGroup
+        title={t("SectionLinks")}
+        footer={
+          linkError ? (
+            <p className="settings-group__error" role="alert">
+              {t("ErrorPrefix")} {linkError}
+            </p>
+          ) : undefined
+        }
+      >
+        {ABOUT_LINKS.map((link) => (
+          <button
+            key={link.url}
+            type="button"
+            className="settings-link-row"
+            onClick={() => openAboutLink(link.url)}
+          >
+            <span>{t(link.labelKey)}</span>
+            <span className="settings-link-row__arrow" aria-hidden="true">
+              ↗
+            </span>
+          </button>
+        ))}
+      </SettingsGroup>
 
       <p className="about-copyright">
         {copyrightBefore}{" "}
@@ -218,6 +238,6 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
         </button>
         {" "}{copyrightAfter}
       </p>
-    </section>
+    </div>
   );
 }

@@ -115,16 +115,117 @@ html:has(.menu-surface--tray) {
   overflow: visible;
 }
 
-/* Tray variant — auto-sized by JS, no forced min-height. */
 .menu-surface--tray {
-  min-height: 0;
-  padding: 4px 0;
+  --mac-font: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --mac-text-headline: 600 13px/16px var(--mac-font);
+  --mac-text-body-medium: 500 13px/16px var(--mac-font);
+  --mac-text-subheadline: 400 11px/14px var(--mac-font);
+  --mac-text-footnote: 400 10px/13px var(--mac-font);
+  --mac-text-caption: 400 10px/13px var(--mac-font);
+  --mac-text-section: 600 10px/13px var(--mac-font);
+  --mac-text-caption2: 400 10px/13px var(--mac-font);
+  --mac-text-menu: 400 13px/16px var(--mac-font);
+  --mac-text-shortcut: 400 13px/16px var(--mac-font);
+
+  --mac-panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  --mac-panel-border: rgba(0, 0, 0, 0.38);
+  --mac-text: rgba(0, 0, 0, 0.85);
+  --mac-text-2: rgba(0, 0, 0, 0.5);
+  --mac-text-3: rgba(0, 0, 0, 0.26);
+  --mac-track: rgba(0, 0, 0, 0.057);
+  --mac-divider: rgba(0, 0, 0, 0.15);
+  --mac-separator: rgba(0, 0, 0, 0.1);
+  --mac-error: #ff3b30;
+  --mac-pace-ok: #34c759;
+  --mac-pace-bad: #ff3b30;
+  --mac-marker: rgba(0, 0, 0, 0.58);
+  --mac-accent: #007aff;
+  --mac-selection-bg: #0078d4;
+  --mac-selection-text: #fff;
+
+  --mac-panel-width: 310px;
+  --mac-panel-radius: 6px;
+  --mac-bar-h: 6px;
+  --mac-bar-r: 3px;
+  --mac-pace-punch: 6px;
+  --mac-pace-stripe: 2px;
+  --mac-warn-punch: 5px;
+  --mac-warn-stripe: 1px;
+  --mac-metric-card-bg: rgba(0, 0, 0, 0.04);
+  --mac-metric-card-r: 10px;
+  --mac-icon-btn-r: 4px;
+  --mac-chart-h: 58px;
+  --mac-chart-bar-r: 1.5px;
+  --mac-sel-inset-x: 6px;
+  --mac-sel-inset-y: 2px;
+  --mac-sel-r: 6px;
+  --mac-sel-fade: 60ms;
+  --mac-sel-r-refresh: 7px;
+
+  --mac-pad-x: 20px;
+  --mac-pad-header-y: 6px;
+  --mac-gap-header: 6px;
+  --mac-section-pt: 6px;
+  --mac-usage-pt: 10px;
+  --mac-section-pb: 6px;
+  --mac-header-line-gap: 4px;
+  --mac-header-col-gap: 12px;
+  --mac-after-divider: 16px;
+  --mac-metric-gap: 12px;
+  --mac-metric-inner: 6px;
+  --mac-inline-gap: 8px;
+  --mac-kv-section: 6px;
+  --mac-kv-row: 3px;
+  --mac-kv-value: 1px;
+  --mac-kv-gap: 12px;
+  --mac-dash-gap: 10px;
+  --mac-kpi-gap: 6px;
+  --mac-row-h: 24px;
+  --mac-menu-row-h: 22px;
+  --mac-row-pl: 15px;
+  --mac-row-icon: 16px;
+  --mac-row-icon-gap: 6px;
+  --mac-shortcut-w: 44px;
+
+  --font-subheadline: 11px;
+  --font-footnote: 10px;
+  --font-caption: 10px;
+
+  --menu-popover-bg: var(--mac-panel-bg);
+  --text-primary: var(--mac-text);
+  --text-secondary: var(--mac-text-2);
+  --text-muted: var(--mac-text-2);
+  --panel-border: var(--mac-divider);
+
+  --usage-bar-track: var(--mac-track);
+  --pace-slow-bg: rgba(0, 122, 255, 0.12);
+  --pace-slow-fg: #007aff;
+  --pace-steady-bg: rgba(21, 128, 61, 0.12);
+  --pace-steady-fg: #15803d;
+  --pace-racing-bg: rgba(180, 83, 9, 0.14);
+  --pace-racing-fg: #b45309;
+  --pace-burning-bg: rgba(185, 28, 28, 0.12);
+  --pace-burning-fg: #b91c1c;
+  --pace-track-expected-fg: rgba(0, 122, 255, 0.45);
+  --chart-cost-fg: #007aff;
+  --chart-credits-fg: var(--chart-credits);
+  --surface-tint-rgb: 0, 0, 0;
+
+  color-scheme: light;
   display: flex;
   flex-direction: column;
-  /* Auto-size to content; JS resizes the Tauri window to match.
-     No max-height here — JS sets an explicit pixel cap after measuring. */
-  height: auto;
+  gap: 0;
   box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  padding: 4px 0;
+  overflow: clip;
+  border: 1px solid var(--mac-panel-border);
+  border-radius: var(--mac-panel-radius);
+  background: var(--mac-panel-bg);
+  box-shadow: var(--mac-panel-highlight);
+  color: var(--mac-text);
 }
 .menu-surface--tray .menu-surface__body {
   flex: 0 1 auto;
@@ -161,29 +262,17 @@ html:has(.menu-surface--tray) {
   box-sizing: border-box;
   overflow: visible;
 }
-/* Selected card — subtle highlight like macOS active provider */
 .menu-surface--tray .menu-stack__item--selected {
-  background: rgba(255, 255, 255, 0.06);
   border: none;
   border-radius: 6px;
   padding: 4px 4px;
 }
-/* Tray separators — subtle hairlines matching macOS card dividers */
-.menu-surface--tray .menu-stack__sep {
-  height: 0.5px;
-  margin: 2px 16px;
-  background: rgba(255, 255, 255, 0.08);
+.menu-surface--tray .provider-grid__item .provider-icon {
+  filter: brightness(0);
 }
-[data-theme="light"] .menu-surface--tray .menu-stack__sep {
-  background: rgba(0, 0, 0, 0.08);
-}
-[data-theme="light"] .menu-surface--tray .menu-stack__item {
-  background: rgba(0, 0, 0, 0.03);
-  border: 0.5px solid rgba(0, 0, 0, 0.04);
-}
-[data-theme="light"] .menu-surface--tray .menu-stack__item--selected {
-  background: rgba(0, 0, 0, 0.06);
-  border: none;
+.menu-surface--tray .update-banner--available,
+.menu-surface--tray .update-banner--ready {
+  color: var(--provider-status-ok);
 }
 /* Tray grid — flush with no background container, matching macOS */
 .menu-surface--tray .provider-grid {
@@ -192,6 +281,13 @@ html:has(.menu-surface--tray) {
   border-radius: 0;
   padding: 8px 12px 6px;
   justify-content: start;
+  gap: 8px 6px;
+}
+
+.menu-surface--tray .provider-grid--sparse {
+  grid-template-columns: repeat(auto-fit, 26px);
+  justify-content: start;
+  gap: 8px 7px;
 }
 
 .menu-surface--tray .provider-grid--sparse .provider-grid__item {
@@ -200,12 +296,6 @@ html:has(.menu-surface--tray) {
 
 .menu-surface--tray .provider-grid--sparse .provider-grid__label {
   display: none;
-}
-/* Divider between provider grid and card stack */
-.menu-surface--tray .provider-grid__divider {
-  height: 1px;
-  margin: 2px 0;
-  background: rgba(255, 255, 255, 0.08);
 }
 
 /* Tray font sizing — match macOS: .headline=13pt, .footnote=10pt */
@@ -222,39 +312,6 @@ html:has(.menu-surface--tray) {
 .menu-surface--tray .menu-card--with-details {
   padding-top: var(--menu-card-section-y);
   padding-bottom: var(--menu-card-section-y);
-}
-
-/* Tray name-group — row layout like macOS: HStack { name — Spacer — email } */
-.menu-surface--tray .menu-card__name-group {
-  flex-direction: row;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
-  width: 100%;
-}
-
-/* Tray name + email — macOS: .font(.headline) = 13pt semibold */
-.menu-surface--tray .menu-card__name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.menu-surface--tray .menu-card__email {
-  flex: 0 1 auto;
-  text-align: right;
-  max-width: 55%;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-/* Tray subtitle + error — match macOS .footnote=10pt */
-.menu-surface--tray .menu-card__subtitle,
-.menu-surface--tray .menu-card__error-text {
-  font-size: 10px;
 }
 
 /* Copy-to-clipboard button — matches macOS CopyIconButton (doc.on.doc, 18×18) */
@@ -277,63 +334,13 @@ html:has(.menu-surface--tray) {
 }
 .menu-card__copy-btn:hover {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--surface-tint-rgb), 0.08);
 }
 
-/* Tray plan badge — plain text like macOS (not a pill) */
-.menu-surface--tray .menu-card__plan-badge {
-  background: none;
-  padding: 0;
-  border-radius: 0;
-  font-size: 10px;
-  font-weight: 400;
-  color: var(--text-secondary);
-}
-
-/* ── Context actions (detail mode) ──────────────────────────────────
-   Matches macOS actionsSection: "Usage Dashboard" + "Status Page"
-   with SF Symbol–style icons. Shown only in detail (single provider) mode. */
-.context-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  flex: 0 0 auto;
-  margin-top: 4px;
-  padding: 0 10px;
-}
-.context-actions__divider {
-  height: 1px;
-  margin: 4px 0;
-  background: rgba(255, 255, 255, 0.10);
-}
-[data-theme="light"] .context-actions__divider {
-  background: rgba(0, 0, 0, 0.10);
-}
-.context-actions__btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 2px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-primary, #f5f5f7);
-  font-size: 12px;
-  cursor: pointer;
-  text-align: left;
-}
-.context-actions__btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-[data-theme="light"] .context-actions__btn:hover {
-  background: rgba(0, 0, 0, 0.06);
-}
-.context-actions__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  font-size: 13px;
+/* Hide status dots in tray grid — macOS shows weekly indicators only on hover,
+   not persistent colored dots under every icon */
+.menu-surface--tray .provider-grid__dot {
+  display: none;
 }
 
 /* Tray card content — match macOS spacing values from SwiftUI source */
@@ -353,114 +360,11 @@ html:has(.menu-surface--tray) {
   font-size: 13px;
   font-weight: 500;
 }
-/* macOS: UsageProgressBar .frame(height: 6) */
-.menu-surface--tray .menu-metric__bar {
-  height: 6px;
-  border-radius: 3px;
-  width: 100%;
-  box-sizing: border-box;
-  max-width: 100%;
-}
+
 .menu-surface--tray .menu-metric__pct,
 .menu-surface--tray .menu-metric__reset,
+.menu-surface--tray .menu-metric__meta,
 .menu-surface--tray .menu-metric__status,
 .menu-surface--tray .menu-metric__detail {
   font-size: 10px;
 }
-.menu-surface--tray .menu-metric__reserve {
-  margin-top: 0;
-  font-size: 10px;
-}
-/* Secondary charts and pace are available inside the Usage details disclosure. */
-.menu-surface--tray .menu-card__local-grid {
-  gap: 9px 20px;
-}
-.menu-surface--tray .menu-card__local-usage {
-  padding-top: 2px;
-}
-.menu-surface--tray .menu-card__local-note {
-  font-size: 10px;
-  line-height: 1.25;
-}
-/* Hide cost section in tray — macOS compact popover only shows usage metrics */
-.menu-surface--tray .menu-card__cost,
-.menu-surface--tray .menu-card__content > .menu-card__divider:has(+ .menu-card__cost) {
-  display: none;
-}
-
-.menu-card__local-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-}
-.menu-card__local-grid > div,
-.menu-card__local-note {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.menu-card__local-label,
-.menu-card__local-note {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-.menu-card__local-grid strong {
-  font-size: 13px;
-  line-height: 1.15;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-.menu-card__local-chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 5px;
-  height: 68px;
-  margin-top: 2px;
-}
-.menu-card__local-chart span {
-  width: 8px;
-  border-radius: 2px 2px 0 0;
-  background: #bf8337;
-}
-.menu-card__local-note strong {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-.menu-card__local-note span {
-  overflow: visible;
-  text-overflow: initial;
-  white-space: normal;
-  line-height: 1.3;
-}
-
-/* Tray footer — match macOS NSMenuItem native look (10pt, ~16px row height) */
-.menu-surface--tray .menu-surface__footer {
-  padding: 4px 0 3px;
-  margin-top: 2px;
-  border-top: 0.5px solid rgba(255, 255, 255, 0.12);
-}
-.menu-surface--tray .menu-surface__footer-row {
-  padding: 3px 16px;
-  font-size: 11px;
-  line-height: 1.3;
-  min-height: 18px;
-}
-/* Indent must override the tray padding above so iconless rows (Settings /
-   About / Quit) align with the iconified Refresh row. */
-.menu-surface--tray .menu-surface__footer-row--no-icon {
-  padding-left: calc(16px + 14px + 8px);
-}
-.menu-surface--tray .menu-surface__footer-icon {
-  font-size: 11px;
-  width: 14px;
-  opacity: 0.7;
-}
-/* Zoom row keeps a taller (16px) slider hit area even though the tray
-   footer's row padding/font-size are otherwise compacted. */
-.menu-surface--tray .menu-surface__footer-zoom {
-  padding-top: 4px;
-  padding-bottom: 4px;
-}
-.menu-surface--tray .menu-surface__footer-zoom-value {
-  font-size: 10px;
-}
-
