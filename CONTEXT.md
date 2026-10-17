@@ -25,9 +25,11 @@ The original split between the repos was about **60% Win-CodexBar, 30% linear-cl
 
 | Mode | CircleCI PR check | Interaction guard | Blacksmith reserve | Release |
 | --- | --- | --- | --- | --- |
-| `normal` | runs when in scope | runs when needed | manual only | GitHub Actions on a `v*.*.*` tag |
-| `thin` | runs when in scope | runs when needed | manual only | GitHub Actions on a `v*.*.*` tag |
-| `off` | skips | skips | skips | GitHub Actions on a `v*.*.*` tag |
+| `normal` | runs when in scope | runs when needed | manual only | GitHub Actions on a canonical `vX.Y.Z` tag |
+| `thin` | runs when in scope | runs when needed | manual only | GitHub Actions on a canonical `vX.Y.Z` tag |
+| `off` | skips | skips | skips | GitHub Actions on a canonical `vX.Y.Z` tag |
+
+The release workflow triggers on any `v*.*.*` tag, then fails at once unless the tag is canonical `vX.Y.Z` (no leading zeros, no suffix). Only canonical tags produce a draft release.
 
 `thin` behaves like `normal`. The code checks only for `off`, and the PR check is a single job with nothing to trim. The value exists for parity with `linear-cli`.
 

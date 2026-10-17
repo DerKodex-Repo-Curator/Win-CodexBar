@@ -54,7 +54,7 @@ For Claude, browser cookies (the `sessionKey`) are preferred, because they match
 - **Tray icon.** The icon shows bars or a percentage for one provider, or two providers stacked. With **Color Pace Indicator** on, it turns green when you are behind pace and red when you are ahead.
 - **Float bar.** An optional always-on-top strip with the same usage.
 - **Providers.** More than 100 providers, including Codex, Claude, Copilot, OpenRouter, Cursor, Gemini, DeepSeek, MiniMax, Kiro, Antigravity, Groq, Qoder and Sakana AI. Each provider has its own source, credentials, cookie import, token accounts, API keys and region settings.
-- **Settings.** A window with a sidebar: General, Usage & Spend, Notifications, Menu Bar, Menu, Advanced, Hooks and About, then one page per provider. Each provider row has a status dot.
+- **Settings.** A window with a sidebar: General, Usage & Spend, Notifications, Menu Bar, Menu, Advanced, Hooks and About, then the Providers section with one page per provider. Each provider row has a status dot.
 - **Provider status pages.** With **Check provider status** on (the default), the app polls the status pages of providers such as OpenAI, Claude, Copilot, Cursor and Gemini. An incident colors that provider's dot in Settings and adds a line to the tray panel and the tray tooltip.
 - **Per-provider quota warnings.** Each provider can use the global warning thresholds, its own thresholds, or none.
 - **Usage & Spend.** Local cost estimates from Codex and Claude logs and from provider APIs. Turn off **Track costs** to hide them.
@@ -172,7 +172,7 @@ A new install follows the Windows display language. Pick **System** or a languag
 
 ## Build from source
 
-You need Rust (stable, `x86_64-pc-windows-msvc`), the Visual Studio C++ build tools, Node.js and pnpm. `scripts/dev.ps1` checks for them but installs nothing. Run these from the repo root:
+You need Rust (stable, `x86_64-pc-windows-msvc`), the Visual Studio C++ build tools, Node.js and pnpm. `scripts/dev.ps1` checks for them but installs nothing. Clone from the folder that should hold the repo; the remaining commands run from the cloned repo root:
 
 ```powershell
 git clone https://github.com/nesszer/Win-CodexBar.git
