@@ -141,6 +141,14 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// Lane the menu bar pace is scored on, whatever metric the menu bar
+    /// shows (upstream `menuBarPaceWindow`,
+    /// StatusItemController+Animation.swift). `None` scores the window the
+    /// tray icon draws.
+    fn menu_bar_pace_lane(&self) -> Option<crate::core::IconLane> {
+        None
+    }
+
     /// Whether cookies only enrich an API-backed result instead of being a
     /// usage source of their own. The shell then keeps the configured usage
     /// source, forwards a manual cookie as-is, and reads a browser only when
@@ -152,6 +160,18 @@ pub trait Provider: Send + Sync {
 
     /// Whether browser-cookie discovery/recovery is owned by the provider.
     fn owns_browser_cookie_resolution(&self) -> bool {
+        false
+    }
+
+    /// Whether the provider picks between its API-key and cookie lanes itself.
+    ///
+    /// When true, the shell keeps the usage source for Auto and API (OAuth)
+    /// under every cookie source instead of remapping it to Web or Cli. It
+    /// forwards a stored or token-account cookie header when the cookie source
+    /// is not `off`; `off` sets [`FetchContext::manual_cookie_missing`]. The
+    /// shell never reads a browser for this provider, which does that only on
+    /// its own cookie lane.
+    fn owns_credential_lane_routing(&self) -> bool {
         false
     }
 

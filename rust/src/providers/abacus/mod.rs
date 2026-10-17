@@ -472,6 +472,11 @@ impl Provider for AbacusProvider {
         ProviderId::Abacus
     }
 
+    /// Upstream `menuBarPaceWindow` paces Abacus on its primary credits lane.
+    fn menu_bar_pace_lane(&self) -> Option<crate::core::IconLane> {
+        Some(crate::core::IconLane::Primary)
+    }
+
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
         tracing::debug!("Fetching Abacus AI usage");
 
