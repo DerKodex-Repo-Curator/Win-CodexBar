@@ -16,7 +16,7 @@ const eventMocks = vi.hoisted(() => ({
 
 vi.mock("../lib/tauri", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/tauri")>()),
-  ...(await import("../test/menuCardMocks")).tauriMocks,
+  ...tauriMocks,
 }));
 vi.mock("@tauri-apps/api/event", () => eventMocks);
 
