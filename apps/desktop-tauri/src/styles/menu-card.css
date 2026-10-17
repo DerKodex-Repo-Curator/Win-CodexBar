@@ -1,0 +1,305 @@
+/* ── Provider card — direct mirror of UsageMenuCardView ─────────────── */
+
+.menu-card {
+  --menu-card-x: 20px;
+  --menu-card-header-only-y: 7px;
+  --menu-card-section-y: 6px;
+  --menu-card-header-line-gap: 4px;
+  --menu-card-header-column-gap: 12px;
+  display: flex;
+  flex-direction: column;
+  /* outer VStack(alignment:.leading, spacing: 6) */
+  gap: 6px;
+  padding: var(--menu-card-header-only-y) var(--menu-card-x);
+  text-align: left;
+  align-items: stretch;
+}
+
+.menu-card--with-details {
+  padding-top: var(--menu-card-section-y);
+  padding-bottom: var(--menu-card-section-y);
+}
+
+/* ── Multi-account Codex lanes (ADR 0003, option A) ─────────────────── */
+
+.codex-menu-accounts__error {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: var(--provider-status-error);
+}
+
+.codex-menu-accounts__usage {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  font-size: 0.66rem;
+  color: var(--provider-row-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.codex-menu-accounts__usage > span + span::before {
+  content: "·";
+  margin: 0 5px;
+  opacity: 0.65;
+}
+
+.codex-menu-accounts__usage-status {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.codex-menu-accounts__bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--provider-row-divider, rgba(128, 128, 128, 0.18));
+  overflow: hidden;
+}
+
+.codex-menu-accounts__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent, currentColor);
+}
+
+.codex-menu-accounts__bar-fill[data-level="critical"] {
+  background: var(--usage-bar-critical, var(--accent));
+}
+
+.codex-menu-accounts__bar-fill[data-level="exhausted"] {
+  background: var(--usage-bar-exhausted, var(--accent));
+}
+
+/* SwiftUI Divider() — single hairline using the system separator. */
+.menu-card__divider {
+  margin: 4px 0;
+}
+
+.menu-card__content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Metric row ─────────────────────────────────────────────────────── */
+
+.menu-metric {
+  display: flex;
+  flex-direction: column;
+  /* upstream: VStack(alignment:.leading, spacing: 6) */
+  gap: 6px;
+}
+
+.menu-metric__title {
+  /* upstream: .font(.body).fontWeight(.medium) — 400 on Windows for visual parity */
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+.menu-metric__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 24px;
+  row-gap: 2px;
+  min-width: 0;
+}
+
+.menu-metric__head .menu-metric__title {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-metric__head .menu-metric__reset {
+  margin-left: auto;
+  max-width: 100%;
+}
+
+.menu-metric__progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+}
+
+.menu-metric__progress-track {
+  fill: var(--usage-bar-track);
+}
+
+.menu-metric__progress-fill {
+  fill: var(--provider-accent, var(--usage-bar-normal));
+}
+
+.menu-metric__progress-warning {
+  fill: color-mix(in srgb, var(--text-primary) 68%, transparent);
+}
+
+.menu-metric__progress-workday {
+  fill: color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+.menu-metric__progress-workday--high-contrast {
+  fill: color-mix(in srgb, var(--text-primary) 85%, transparent);
+}
+
+.menu-metric__progress-pace {
+  fill: var(--mac-pace-ok, #34c759);
+}
+
+.menu-metric__progress-pace[data-deficit="true"] {
+  fill: var(--mac-pace-bad, #ff3b30);
+}
+
+.menu-metric__meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* HStack(.firstTextBaseline) percent label — reset countdown */
+.menu-metric__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0; /* allow children to shrink/ellipsis inside flex */
+}
+
+.menu-metric__pct {
+  /* upstream: .font(.footnote) ≈ 11px primary */
+  font-size: 11px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+/* Detail-backed window description (for example spend amounts): its own
+   secondary line under the metric row, never reset wording. */
+.menu-metric__detail {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.menu-metric__reset {
+  font-size: 11px;
+  color: var(--text-secondary);
+  /* Upstream 0.49.0 #2742 (refs #2182): long metric reset and pace details
+     wrap to a second line instead of truncating, so non-English locales keep
+     the full reset information. #2846: the percent value keeps its own line
+     slot (row only stacks when both cannot fit) and the two-line clamp keeps
+     cached card heights bounded. */
+  min-width: 0;
+  max-width: 62%;
+  text-align: right;
+  white-space: normal;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.menu-metric__exhausted {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--provider-status-error);
+}
+
+/* Upstream 0.69.0 #4091 status row: a window blocked by a longer exhausted
+   pool shows its title and one secondary footnote line instead of a bar. */
+.menu-metric__status {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pace-details-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 2px;
+}
+
+.pace-details-chart svg {
+  width: 100%;
+  height: 76px;
+  overflow: visible;
+}
+
+.pace-details-chart__grid {
+  stroke: var(--usage-bar-track);
+  stroke-width: 1;
+}
+
+.pace-details-chart__ideal {
+  stroke: var(--chart-credits-fg);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__actual {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__projection {
+  stroke: var(--text-secondary);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__point {
+  fill: var(--accent);
+  vector-effect: non-scaling-stroke;
+}
+
+.pace-details-chart__legend {
+  display: flex;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.pace-details-chart__legend span::before {
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+  background: var(--text-secondary);
+  content: "";
+}
+
+.pace-details-chart__legend span[data-series="actual"]::before {
+  background: var(--accent);
+}
+
+.pace-details-chart__legend span[data-series="ideal"]::before {
+  background: var(--chart-credits-fg);
+}
+
+/* ── Cost section (upstream `tokenUsage` block) ─────────────────────── */
+
+/* ── Pace section (Tauri-only; sits below cost in the same card) ────── */
+

@@ -11,13 +11,6 @@ use chrono::{DateTime, Utc};
 use crate::settings::Settings;
 use crate::spend_contract::{LocalHistoryCoverage, LocalTokenHistorySummary};
 
-fn clean_env_path(value: Option<&str>) -> Option<PathBuf> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-}
-
 /// One opt-in entry from settings. Empty, NUL-containing, and relative entries
 /// are ignored; `~` and `~/` expand against the refresh environment's home.
 fn expand_additional_home(home: &Path, raw: &str) -> Option<PathBuf> {
@@ -59,7 +52,8 @@ pub(super) fn gemini_home_directories(
     gemini_cli_home: Option<&str>,
     additional: &[String],
 ) -> Vec<PathBuf> {
-    let primary = clean_env_path(gemini_cli_home).unwrap_or_else(|| home.join(".gemini"));
+    let primary =
+        local_sessions::clean_env_path(gemini_cli_home).unwrap_or_else(|| home.join(".gemini"));
     let mut seen = HashSet::new();
     std::iter::once(primary)
         .chain(

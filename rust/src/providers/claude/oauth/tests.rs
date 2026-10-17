@@ -2,7 +2,7 @@ use super::{
     ClaudeOAuthCredentials, ClaudeOAuthFetcher, OAuthUsageResponse, UsageWindow,
     credential_identity, is_rate_limited_error,
 };
-use crate::core::ProviderError;
+use crate::core::{ProviderError, UsageSnapshot};
 use base64::Engine;
 use reqwest::header::HeaderValue;
 use std::time::Duration;
@@ -29,6 +29,19 @@ fn test_credentials(access_token: &str) -> ClaudeOAuthCredentials {
     }
 }
 
+fn creds(rate_limit_tier: Option<&str>) -> ClaudeOAuthCredentials {
+    ClaudeOAuthCredentials {
+        scopes: vec![],
+        rate_limit_tier: rate_limit_tier.map(str::to_string),
+        ..test_credentials("token")
+    }
+}
+
+fn snapshot(json: &str, credentials: &ClaudeOAuthCredentials) -> UsageSnapshot {
+    let response: OAuthUsageResponse = serde_json::from_str(json).expect("OAuth usage body");
+    ClaudeOAuthFetcher::new().build_usage_snapshot(&response, credentials)
+}
+
 #[test]
 fn credential_identity_uses_jwt_subject_when_available() {
     let payload =
@@ -53,56 +66,32 @@ fn opaque_credential_identity_is_a_non_secret_fingerprint() {
 }
 
 #[test]
-fn keeps_sub_one_utilization_in_percent_units() {
-    let window = UsageWindow {
-        utilization: Some(0.23),
-        resets_at: None,
-    };
+fn keeps_utilization_in_percent_units() {
+    // 1.0 is a 1% session, not a full quota.
+    for utilization in [0.23, 1.0, 23.0] {
+        let window = UsageWindow {
+            utilization: Some(utilization),
+            resets_at: None,
+        };
 
-    let rate = ClaudeOAuthFetcher::to_rate_window(&window, Some(300)).expect("rate window");
+        let rate = ClaudeOAuthFetcher::to_rate_window(&window, Some(300)).expect("rate window");
 
-    assert!((rate.used_percent - 0.23).abs() < f64::EPSILON);
-}
-
-#[test]
-fn one_percent_session_is_not_reported_as_full_quota() {
-    let window = UsageWindow {
-        utilization: Some(1.0),
-        resets_at: None,
-    };
-
-    let rate = ClaudeOAuthFetcher::to_rate_window(&window, Some(300)).expect("rate window");
-
-    assert!(
-        (rate.used_percent - 1.0).abs() < f64::EPSILON,
-        "session was {}, expected 1% (not 100%)",
-        rate.used_percent
-    );
-}
-
-#[test]
-fn preserves_existing_percentage_utilization() {
-    let window = UsageWindow {
-        utilization: Some(23.0),
-        resets_at: None,
-    };
-
-    let rate = ClaudeOAuthFetcher::to_rate_window(&window, Some(300)).expect("rate window");
-
-    assert!((rate.used_percent - 23.0).abs() < f64::EPSILON);
+        assert!(
+            (rate.used_percent - utilization).abs() < f64::EPSILON,
+            "session was {}, expected {utilization}% (not 100%)",
+            rate.used_percent
+        );
+    }
 }
 
 #[test]
 fn missing_oauth_session_is_informational_and_keeps_weekly_lane() {
-    let response: OAuthUsageResponse = serde_json::from_str(
+    let usage = snapshot(
         r#"{
             "seven_day": {"utilization": 51.0, "resets_at": "2026-08-20T12:00:00Z"}
         }"#,
-    )
-    .expect("OAuth response without a session lane should parse");
-
-    let usage =
-        ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &test_credentials("token"));
+        &test_credentials("token"),
+    );
 
     assert!(usage.primary.is_informational);
     assert_eq!(usage.primary.window_minutes, Some(300));
@@ -146,7 +135,11 @@ fn oauth_response_without_valid_cloud_credits_yields_no_row() {
 
 #[test]
 fn parses_current_snake_case_oauth_usage_response() {
-    let response: OAuthUsageResponse = serde_json::from_str(
+    let credentials = ClaudeOAuthCredentials {
+        rate_limit_tier: Some("default_claude_ai".to_string()),
+        ..test_credentials("token")
+    };
+    let usage = snapshot(
         r#"{
             "five_hour": {"utilization": 1.0, "resets_at": "2026-05-22T22:10:00Z"},
             "seven_day": {"utilization": 0.14, "resets_at": "2026-05-29T10:00:00Z"},
@@ -161,17 +154,8 @@ fn parses_current_snake_case_oauth_usage_response() {
             }],
             "extra_usage": {"is_enabled": true, "used_credits": 0, "monthly_limit": 1000, "currency": "USD"}
         }"#,
-    )
-    .expect("snake_case OAuth response should parse");
-
-    let credentials = ClaudeOAuthCredentials {
-        access_token: "token".to_string(),
-        refresh_token: None,
-        expires_at: None,
-        scopes: vec!["user:profile".to_string()],
-        rate_limit_tier: Some("default_claude_ai".to_string()),
-    };
-    let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
+        &credentials,
+    );
 
     assert_eq!(usage.primary.used_percent, 1.0);
     assert!((usage.secondary.expect("weekly").used_percent - 0.14).abs() < 0.001);
@@ -258,7 +242,8 @@ fn uncapped_spend_only_oauth_response_stays_without_a_meter() {
 
 #[test]
 fn weekly_all_limit_wins_over_stale_seven_day_utilization() {
-    let response: OAuthUsageResponse = serde_json::from_str(
+    let credentials = creds(Some("default_claude_max_5x"));
+    let usage = snapshot(
         r#"{
             "five_hour": {"utilization": 8.0, "resets_at": "2026-07-20T04:29:59Z"},
             "seven_day": {"utilization": 1.0, "resets_at": "2026-07-26T22:59:59Z"},
@@ -278,17 +263,8 @@ fn weekly_all_limit_wins_over_stale_seven_day_utilization() {
                 }
             ]
         }"#,
-    )
-    .expect("oauth body with weekly_all");
-
-    let credentials = ClaudeOAuthCredentials {
-        access_token: "token".to_string(),
-        refresh_token: None,
-        expires_at: None,
-        scopes: vec![],
-        rate_limit_tier: Some("default_claude_max_5x".to_string()),
-    };
-    let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
+        &credentials,
+    );
 
     assert!((usage.primary.used_percent - 8.0).abs() < f64::EPSILON);
     // seven_day.utilization 1.0 would normalize to 100%; weekly_all wins.
@@ -307,7 +283,8 @@ fn weekly_all_limit_wins_over_stale_seven_day_utilization() {
 fn issue_210_reporter_shape_secondary_is_one_percent_not_one_hundred() {
     // Mirrors the reporter JSON: session 8%, fable 2%, all-models should be 1%
     // while seven_day.utilization is the stale 1.0 (would display as 100%).
-    let response: OAuthUsageResponse = serde_json::from_str(
+    let credentials = creds(Some("default_claude_max_5x"));
+    let usage = snapshot(
         r#"{
             "five_hour": {
                 "utilization": 8.0,
@@ -338,17 +315,8 @@ fn issue_210_reporter_shape_secondary_is_one_percent_not_one_hundred() {
                 }
             ]
         }"#,
-    )
-    .expect("issue 210 body");
-
-    let credentials = ClaudeOAuthCredentials {
-        access_token: "token".to_string(),
-        refresh_token: None,
-        expires_at: None,
-        scopes: vec![],
-        rate_limit_tier: Some("default_claude_max_5x".to_string()),
-    };
-    let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
+        &credentials,
+    );
 
     assert_eq!(usage.login_method.as_deref(), Some("Claude Max 5x"));
     assert!((usage.primary.used_percent - 8.0).abs() < f64::EPSILON);
@@ -373,7 +341,8 @@ fn issue_279_session_limits_win_over_stale_five_hour_after_rollover() {
     // can transiently report 1.0 (normalizes to 100%) even though
     // claude.ai shows only 5% for the fresh window. The limits[] entry
     // (kind=="session") carries the true value and must win.
-    let response: OAuthUsageResponse = serde_json::from_str(
+    let credentials = creds(Some("default_claude_max_5x"));
+    let usage = snapshot(
         r#"{
             "five_hour": {"utilization": 1.0, "resets_at": "2026-08-13T12:49:59.578826Z"},
             "seven_day": {"utilization": 0.01, "resets_at": "2026-07-26T22:59:59Z"},
@@ -392,17 +361,8 @@ fn issue_279_session_limits_win_over_stale_five_hour_after_rollover() {
                 }
             ]
         }"#,
-    )
-    .expect("issue 279 body");
-
-    let credentials = ClaudeOAuthCredentials {
-        access_token: "token".to_string(),
-        refresh_token: None,
-        expires_at: None,
-        scopes: vec![],
-        rate_limit_tier: Some("default_claude_max_5x".to_string()),
-    };
-    let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
+        &credentials,
+    );
 
     // Primary session must be 5%, not the stale 100%.
     assert!(
@@ -423,40 +383,29 @@ fn issue_279_session_limits_win_over_stale_five_hour_after_rollover() {
 fn session_falls_back_to_legacy_five_hour_without_limits_entry() {
     // When no limits[] session entry exists, the legacy five_hour field
     // is still the source of truth (backwards compatible).
-    let response: OAuthUsageResponse = serde_json::from_str(
+    let credentials = creds(None);
+    let usage = snapshot(
         r#"{
             "five_hour": {"utilization": 10.0, "resets_at": "2026-08-13T12:49:59Z"}
         }"#,
-    )
-    .expect("legacy-only body");
-
-    let credentials = ClaudeOAuthCredentials {
-        access_token: "token".to_string(),
-        refresh_token: None,
-        expires_at: None,
-        scopes: vec![],
-        rate_limit_tier: None,
-    };
-    let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
+        &credentials,
+    );
 
     assert!((usage.primary.used_percent - 10.0).abs() < f64::EPSILON);
     assert_eq!(usage.primary.window_minutes, Some(300));
 }
 
 #[test]
-fn parses_retry_after_seconds() {
-    let header = HeaderValue::from_static("17");
-    let duration = ClaudeOAuthFetcher::retry_after_duration(Some(&header));
+fn retry_after_parses_seconds_and_falls_back_to_default_backoff() {
+    for (value, expected) in [
+        ("17", Duration::from_secs(17)),
+        ("not-a-date", ClaudeOAuthFetcher::DEFAULT_RATE_LIMIT_BACKOFF),
+    ] {
+        let header = HeaderValue::from_static(value);
+        let duration = ClaudeOAuthFetcher::retry_after_duration(Some(&header));
 
-    assert_eq!(duration, Duration::from_secs(17));
-}
-
-#[test]
-fn invalid_retry_after_uses_default_backoff() {
-    let header = HeaderValue::from_static("not-a-date");
-    let duration = ClaudeOAuthFetcher::retry_after_duration(Some(&header));
-
-    assert_eq!(duration, ClaudeOAuthFetcher::DEFAULT_RATE_LIMIT_BACKOFF);
+        assert_eq!(duration, expected, "{value}");
+    }
 }
 
 #[test]
@@ -487,66 +436,39 @@ fn only_the_rate_limit_refusal_counts_as_rate_limited() {
 
 #[test]
 fn oauth_extras_put_scoped_weekly_before_routines() {
-    let response: OAuthUsageResponse = serde_json::from_str(
+    // With and without a scoped reset time.
+    for json in [
         r#"{
-            "five_hour": {"utilization": 10.0},
-            "seven_day_routines": {"utilization": 5.0},
-            "limits": [{
-                "kind": "weekly_scoped",
-                "group": "weekly",
-                "percent": 7,
-                "resets_at": "2026-05-29T10:00:00Z",
-                "scope": {"model": {"display_name": "Fable"}}
-            }]
-        }"#,
-    )
-    .expect("oauth body");
-
-    let credentials = ClaudeOAuthCredentials {
-        access_token: "token".to_string(),
-        refresh_token: None,
-        expires_at: None,
-        scopes: vec![],
-        rate_limit_tier: None,
-    };
-    let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
-
-    let ids: Vec<&str> = usage
-        .extra_rate_windows
-        .iter()
-        .map(|w| w.id.as_str())
-        .collect();
-    assert_eq!(ids, vec!["claude-weekly-scoped-fable", "claude-routines"]);
-}
-
-#[test]
-fn oauth_extras_keep_routines_in_raw_snapshot() {
-    let response: OAuthUsageResponse = serde_json::from_str(
+                "five_hour": {"utilization": 10.0},
+                "seven_day_routines": {"utilization": 5.0},
+                "limits": [{
+                    "kind": "weekly_scoped",
+                    "group": "weekly",
+                    "percent": 7,
+                    "resets_at": "2026-05-29T10:00:00Z",
+                    "scope": {"model": {"display_name": "Fable"}}
+                }]
+            }"#,
         r#"{
-            "five_hour": {"utilization": 10.0},
-            "seven_day_routines": {"utilization": 5.0},
-            "limits": [{
-                "kind": "weekly_scoped",
-                "group": "weekly",
-                "percent": 7,
-                "scope": {"model": {"display_name": "Fable"}}
-            }]
-        }"#,
-    )
-    .expect("oauth body");
+                "five_hour": {"utilization": 10.0},
+                "seven_day_routines": {"utilization": 5.0},
+                "limits": [{
+                    "kind": "weekly_scoped",
+                    "group": "weekly",
+                    "percent": 7,
+                    "scope": {"model": {"display_name": "Fable"}}
+                }]
+            }"#,
+    ] {
+        let usage = snapshot(json, &creds(None));
 
-    let credentials = ClaudeOAuthCredentials {
-        access_token: "token".to_string(),
-        refresh_token: None,
-        expires_at: None,
-        scopes: vec![],
-        rate_limit_tier: None,
-    };
-    let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
-
-    assert_eq!(usage.extra_rate_windows.len(), 2);
-    assert_eq!(usage.extra_rate_windows[0].id, "claude-weekly-scoped-fable");
-    assert_eq!(usage.extra_rate_windows[1].id, "claude-routines");
+        let ids: Vec<&str> = usage
+            .extra_rate_windows
+            .iter()
+            .map(|w| w.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["claude-weekly-scoped-fable", "claude-routines"]);
+    }
 }
 
 // ── Refresh-token backoff (upstream 0.48.0 #2650 mapping) ───
@@ -722,4 +644,72 @@ fn gate_survives_a_poisoned_mutex() {
     .join();
     assert!(joined.is_err());
     assert!(ClaudeOAuthFetcher::gate_precheck(&gate, 1_000_000_000_000, "fp").is_none());
+}
+
+#[test]
+fn standalone_result_takes_saved_labels_and_drops_token_identity() {
+    use crate::core::{ProviderFetchResult, RateWindow, UsageSnapshot};
+
+    let summary = super::super::accounts::ClaudeAccount {
+        id: "a:one".into(),
+        email: "saved@example.com".into(),
+        organization: Some("Saved Org".into()),
+        plan: Some("claude_max_5x".into()),
+        is_active: false,
+        is_saved: true,
+    };
+    let fresh = || {
+        ProviderFetchResult::new(UsageSnapshot::new(RateWindow::new(10.0)), "oauth")
+            .with_account_identity("token-subject")
+    };
+
+    let mut fetched = fresh();
+    super::apply_standalone_summary(&mut fetched, Some(summary));
+    assert_eq!(fetched.account_identity, None);
+    assert_eq!(
+        fetched.usage.account_email.as_deref(),
+        Some("saved@example.com")
+    );
+    assert_eq!(
+        fetched.usage.account_organization.as_deref(),
+        Some("Saved Org")
+    );
+    assert_eq!(fetched.usage.login_method.as_deref(), Some("Claude Max 5x"));
+
+    // Without a saved summary only the token identity is dropped.
+    let mut bare = fresh();
+    super::apply_standalone_summary(&mut bare, None);
+    assert_eq!(bare.account_identity, None);
+    assert_eq!(bare.usage.account_email, None);
+    assert_eq!(bare.usage.login_method, None);
+}
+
+static ENV_TOKEN_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn environment_token_is_honored_before_standalone_and_consent() {
+    use super::credentials_store::{CredentialSource, environment_token_present, load_credentials};
+    const KEY: &str = "CODEXBAR_CLAUDE_OAUTH_TOKEN";
+    let _guard = ENV_TOKEN_TESTS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    // SAFETY: every test that changes this variable holds ENV_TOKEN_TESTS.
+    unsafe { std::env::set_var(KEY, "env-token") };
+    let present = environment_token_present();
+    // The env check short-circuits, so Claude Code's consent is never read.
+    let standalone = super::standalone_fallback_applies();
+    let loaded = load_credentials();
+    // SAFETY: same guarded test-only mutation as above.
+    unsafe { std::env::set_var(KEY, "   ") };
+    let blank = environment_token_present();
+    // SAFETY: same guarded test-only mutation as above.
+    unsafe { std::env::remove_var(KEY) };
+
+    assert!(present);
+    assert!(!standalone);
+    let (credentials, source) = loaded.expect("environment token loads without consent");
+    assert_eq!(credentials.access_token, "env-token");
+    assert!(matches!(source, CredentialSource::Environment));
+    assert!(!blank);
 }

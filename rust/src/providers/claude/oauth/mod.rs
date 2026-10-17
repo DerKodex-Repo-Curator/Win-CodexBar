@@ -310,6 +310,34 @@ fn account_refresh_error(error: ProviderError) -> ProviderError {
     }
 }
 
+/// Whether the standalone saved account may stand in for Claude Code's login.
+/// An explicit OAuth token from the environment always wins, so it is checked
+/// first; the standalone account never replaces it or runs ahead of it.
+fn standalone_fallback_applies() -> bool {
+    !credentials_store::environment_token_present() && !super::claude_code_consent()
+}
+
+/// Standalone results carry the saved account's own labels and never the
+/// identity a token may hold, because the token says nothing about which
+/// login Claude CLI uses.
+fn apply_standalone_summary(
+    fetched: &mut ProviderFetchResult,
+    summary: Option<super::accounts::ClaudeAccount>,
+) {
+    fetched.account_identity = None;
+    let Some(summary) = summary else {
+        return;
+    };
+    let usage = &mut fetched.usage;
+    usage.account_email = Some(summary.email);
+    if summary.organization.is_some() {
+        usage.account_organization = summary.organization;
+    }
+    if let Some(plan) = summary.plan {
+        usage.login_method = Some(super::claude_plan_label(&plan));
+    }
+}
+
 impl ClaudeOAuthFetcher {
     const USAGE_URL: &'static str = "https://api.anthropic.com/api/oauth/usage";
     const DEFAULT_RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(5 * 60);
@@ -326,6 +354,16 @@ impl ClaudeOAuthFetcher {
     pub async fn fetch(&self) -> Result<ProviderFetchResult, ProviderError> {
         let _account_operation = super::accounts::CREDENTIAL_OPERATION.lock().await;
         let account_manager = super::accounts::AccountManager::new().ok();
+        // Without consent Claude Code's credentials stay closed. A saved
+        // account that was never installed into Claude Code is CodexBar's own
+        // and can still supply usage, so a stale or absent Claude Code login
+        // does not blank the panel. An environment token is checked first.
+        if standalone_fallback_applies()
+            && let Some(manager) = &account_manager
+            && let Some(result) = self.fetch_standalone_saved_account(manager).await
+        {
+            return result;
+        }
         let saved_account_id = account_manager
             .as_ref()
             .and_then(|manager| manager.current_account_id().ok().flatten());
@@ -365,6 +403,44 @@ impl ClaudeOAuthFetcher {
         let (oauth, active) = manager
             .usage_credentials(id)
             .map_err(|e| ProviderError::Other(e.to_string()))?;
+        self.fetch_saved_account(&manager, id, &oauth, active).await
+    }
+
+    /// Usage for the one saved account CodexBar may use without Claude Code's
+    /// credentials. `None` when there is no such account, so the caller keeps
+    /// its normal path (and its own error) for that case.
+    async fn fetch_standalone_saved_account(
+        &self,
+        manager: &super::accounts::AccountManager,
+    ) -> Option<Result<ProviderFetchResult, ProviderError>> {
+        let (id, oauth) = match manager.standalone_usage_credentials() {
+            Ok(Some(account)) => account,
+            Ok(None) => return None,
+            Err(error) => {
+                tracing::warn!(%error, "Could not read CodexBar's saved Claude accounts");
+                return None;
+            }
+        };
+        tracing::debug!("Claude Code credentials are off; using the standalone saved account");
+        let mut result = self.fetch_saved_account(manager, &id, &oauth, false).await;
+        match &mut result {
+            Ok(fetched) => apply_standalone_summary(fetched, manager.saved_summary(&id)),
+            Err(error) => {
+                tracing::warn!(%error, "Claude usage from the standalone saved account failed");
+            }
+        }
+        Some(result)
+    }
+
+    /// Resolve, refresh when needed, and query one saved account. `active`
+    /// means Claude Code holds the same login, so a refresh also updates it.
+    async fn fetch_saved_account(
+        &self,
+        manager: &super::accounts::AccountManager,
+        id: &str,
+        oauth: &serde_json::Value,
+        active: bool,
+    ) -> Result<ProviderFetchResult, ProviderError> {
         let oauth = oauth.to_string();
         let source = credentials_store::CredentialSource::saved_account(
             manager.usage_source_path(),
@@ -373,13 +449,7 @@ impl ClaudeOAuthFetcher {
         );
         let credentials = credentials_store::parse_credentials_json(&oauth)?;
         let (credentials, outcome) = self
-            .ensure_fresh_credentials(
-                credentials,
-                source.clone(),
-                Some(&manager),
-                Some(id),
-                active,
-            )
+            .ensure_fresh_credentials(credentials, source.clone(), Some(manager), Some(id), active)
             .await;
         if credentials.is_expired()
             && let Some(error) = outcome
@@ -399,7 +469,7 @@ impl ClaudeOAuthFetcher {
             expired.expires_at = Some(Utc::now());
             credentials_store::store_refreshed(&source, &expired);
             let (refreshed, outcome) = self
-                .ensure_fresh_credentials(expired, source, Some(&manager), Some(id), active)
+                .ensure_fresh_credentials(expired, source, Some(manager), Some(id), active)
                 .await;
             if let Some(error) = outcome {
                 return Err(account_refresh_error(error));
