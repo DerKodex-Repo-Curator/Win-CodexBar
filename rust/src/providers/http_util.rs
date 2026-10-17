@@ -86,18 +86,21 @@ pub(crate) async fn send_json<T: DeserializeOwned>(
     parse_json(response, parse_label).await
 }
 
+/// Test helper: renders a policy's verdict for `status` as "ok", "auth",
+/// or the error message. Provider modules use it to pin their own labels.
+#[cfg(test)]
+pub(crate) fn status_outcome(policy: &StatusPolicy<'_>, status: u16) -> String {
+    match policy.check(StatusCode::from_u16(status).unwrap()) {
+        Ok(()) => "ok".to_string(),
+        Err(ProviderError::AuthRequired) => "auth".to_string(),
+        Err(ProviderError::Other(message)) => message,
+        Err(other) => panic!("unexpected error {other:?}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn outcome(policy: &StatusPolicy<'_>, status: u16) -> String {
-        match policy.check(StatusCode::from_u16(status).unwrap()) {
-            Ok(()) => "ok".to_string(),
-            Err(ProviderError::AuthRequired) => "auth".to_string(),
-            Err(ProviderError::Other(message)) => message,
-            Err(other) => panic!("unexpected error {other:?}"),
-        }
-    }
 
     #[tokio::test]
     async fn send_json_matches_inline_decode_error_and_auth_mapping() {
@@ -122,80 +125,49 @@ mod tests {
             .unwrap()
             .json::<serde_json::Value>()
             .await
-            .map_err(|e| format!("Failed to parse Poe balance: {e}"))
+            .map_err(|e| format!("Failed to parse Test body: {e}"))
             .unwrap_err();
         let shared = send_json::<serde_json::Value>(
             client.get(&bad_url),
-            &StatusPolicy::auth_401_403("Poe usage"),
-            "Poe balance",
+            &StatusPolicy::auth_401_403("Test usage"),
+            "Test body",
         )
         .await;
         assert!(matches!(shared, Err(ProviderError::Parse(message)) if message == inline));
 
         let denied = send_json::<serde_json::Value>(
             client.get(format!("{}/denied", server.url())),
-            &StatusPolicy::auth_401_403("Poe usage"),
-            "Poe balance",
+            &StatusPolicy::auth_401_403("Test usage"),
+            "Test body",
         )
         .await;
         assert!(matches!(denied, Err(ProviderError::AuthRequired)));
     }
 
     #[test]
-    fn provider_status_messages_are_pinned() {
-        let policies = [
-            StatusPolicy::auth_401_403("CrossModel credits"),
-            StatusPolicy::auth_401("Codebuff API"),
-            StatusPolicy::auth_401("Deepgram projects API")
-                .forbidden("Deepgram API key does not have Management API access.".to_string()),
-            StatusPolicy::auth_401("Deepgram usage API")
-                .forbidden("Deepgram API key cannot read usage for project p1.".to_string()),
-            StatusPolicy::auth_401("NanoGPT API"),
-            StatusPolicy::auth_401_403("Poe usage"),
-            StatusPolicy::status_only("Poe history"),
-        ];
-        let rows: &[(usize, u16, &str)] = &[
-            (0, 200, "ok"),
-            (0, 401, "auth"),
-            (0, 403, "auth"),
-            (
-                0,
-                500,
-                "CrossModel credits returned status 500 Internal Server Error",
-            ),
-            (1, 401, "auth"),
-            (1, 403, "Codebuff API returned status 403 Forbidden"),
-            (1, 429, "Codebuff API returned status 429 Too Many Requests"),
-            (2, 200, "ok"),
-            (2, 401, "auth"),
-            (
-                2,
-                403,
-                "Deepgram API key does not have Management API access.",
-            ),
-            (
-                2,
-                502,
-                "Deepgram projects API returned status 502 Bad Gateway",
-            ),
-            (3, 401, "auth"),
-            (3, 403, "Deepgram API key cannot read usage for project p1."),
-            (3, 404, "Deepgram usage API returned status 404 Not Found"),
-            (4, 401, "auth"),
-            (4, 403, "NanoGPT API returned status 403 Forbidden"),
-            (5, 401, "auth"),
-            (5, 403, "auth"),
-            (5, 503, "Poe usage returned status 503 Service Unavailable"),
-            (6, 401, "Poe history returned status 401 Unauthorized"),
-            (6, 403, "Poe history returned status 403 Forbidden"),
-            (6, 204, "ok"),
-        ];
-        for &(policy, status, expected) in rows {
-            assert_eq!(
-                outcome(&policies[policy], status),
-                expected,
-                "row {policy}/{status}"
-            );
-        }
+    fn status_policy_maps_statuses_generically() {
+        let auth = StatusPolicy::auth_401_403("Test API");
+        assert_eq!(status_outcome(&auth, 200), "ok");
+        assert_eq!(status_outcome(&auth, 401), "auth");
+        assert_eq!(status_outcome(&auth, 403), "auth");
+        assert_eq!(
+            status_outcome(&auth, 500),
+            "Test API returned status 500 Internal Server Error"
+        );
+
+        let strict = StatusPolicy::auth_401("Test API").forbidden("no access".to_string());
+        assert_eq!(status_outcome(&strict, 401), "auth");
+        assert_eq!(status_outcome(&strict, 403), "no access");
+        assert_eq!(
+            status_outcome(&strict, 404),
+            "Test API returned status 404 Not Found"
+        );
+
+        let status_only = StatusPolicy::status_only("Test API");
+        assert_eq!(
+            status_outcome(&status_only, 401),
+            "Test API returned status 401 Unauthorized"
+        );
+        assert_eq!(status_outcome(&status_only, 204), "ok");
     }
 }

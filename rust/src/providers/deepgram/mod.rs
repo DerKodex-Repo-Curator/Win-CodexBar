@@ -305,6 +305,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn status_messages_are_pinned() {
+        use crate::providers::http_util::{StatusPolicy, status_outcome};
+        let projects = StatusPolicy::auth_401("Deepgram projects API")
+            .forbidden("Deepgram API key does not have Management API access.".to_string());
+        assert_eq!(status_outcome(&projects, 200), "ok");
+        assert_eq!(status_outcome(&projects, 401), "auth");
+        assert_eq!(
+            status_outcome(&projects, 403),
+            "Deepgram API key does not have Management API access."
+        );
+        assert_eq!(
+            status_outcome(&projects, 502),
+            "Deepgram projects API returned status 502 Bad Gateway"
+        );
+
+        let usage = StatusPolicy::auth_401("Deepgram usage API").forbidden(format!(
+            "Deepgram API key cannot read usage for project {}.",
+            "p1"
+        ));
+        assert_eq!(status_outcome(&usage, 401), "auth");
+        assert_eq!(
+            status_outcome(&usage, 403),
+            "Deepgram API key cannot read usage for project p1."
+        );
+        assert_eq!(
+            status_outcome(&usage, 404),
+            "Deepgram usage API returned status 404 Not Found"
+        );
+    }
+
+    #[test]
     fn aggregates_project_usage() {
         let project = Project {
             project_id: "project-1".into(),

@@ -304,6 +304,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn api_status_messages_are_pinned() {
+        use crate::providers::http_util::{StatusPolicy, status_outcome};
+        let policy = StatusPolicy::auth_401("Codebuff API");
+        assert_eq!(status_outcome(&policy, 200), "ok");
+        assert_eq!(status_outcome(&policy, 401), "auth");
+        assert_eq!(
+            status_outcome(&policy, 403),
+            "Codebuff API returned status 403 Forbidden"
+        );
+        assert_eq!(
+            status_outcome(&policy, 429),
+            "Codebuff API returned status 429 Too Many Requests"
+        );
+    }
+
+    #[test]
     fn builds_snapshot_from_usage_and_subscription() {
         let usage = json!({
             "usage": 25,

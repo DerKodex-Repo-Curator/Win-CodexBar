@@ -349,6 +349,18 @@ mod tests {
     }
 
     #[test]
+    fn api_status_messages_are_pinned() {
+        use crate::providers::http_util::{StatusPolicy, status_outcome};
+        let policy = StatusPolicy::auth_401("NanoGPT API");
+        assert_eq!(status_outcome(&policy, 200), "ok");
+        assert_eq!(status_outcome(&policy, 401), "auth");
+        assert_eq!(
+            status_outcome(&policy, 403),
+            "NanoGPT API returned status 403 Forbidden"
+        );
+    }
+
+    #[test]
     fn inactive_subscription_requires_auth() {
         let mut value = documented();
         value["active"] = json!(false);

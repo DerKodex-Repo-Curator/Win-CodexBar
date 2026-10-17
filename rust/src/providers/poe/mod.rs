@@ -338,6 +338,30 @@ mod tests {
     use chrono::TimeZone;
 
     #[test]
+    fn status_messages_are_pinned() {
+        use crate::providers::http_util::{StatusPolicy, status_outcome};
+        let usage = StatusPolicy::auth_401_403("Poe usage");
+        assert_eq!(status_outcome(&usage, 200), "ok");
+        assert_eq!(status_outcome(&usage, 401), "auth");
+        assert_eq!(status_outcome(&usage, 403), "auth");
+        assert_eq!(
+            status_outcome(&usage, 503),
+            "Poe usage returned status 503 Service Unavailable"
+        );
+
+        let history = StatusPolicy::status_only("Poe history");
+        assert_eq!(status_outcome(&history, 204), "ok");
+        assert_eq!(
+            status_outcome(&history, 401),
+            "Poe history returned status 401 Unauthorized"
+        );
+        assert_eq!(
+            status_outcome(&history, 403),
+            "Poe history returned status 403 Forbidden"
+        );
+    }
+
+    #[test]
     fn parses_balance_label() {
         let snapshot = snapshot_from_balance_at(
             &serde_json::json!({"current_point_balance": 1234}),

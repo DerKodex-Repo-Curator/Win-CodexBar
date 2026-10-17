@@ -265,6 +265,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn credits_status_messages_are_pinned() {
+        use crate::providers::http_util::{StatusPolicy, status_outcome};
+        let policy = StatusPolicy::auth_401_403("CrossModel credits");
+        assert_eq!(status_outcome(&policy, 200), "ok");
+        assert_eq!(status_outcome(&policy, 401), "auth");
+        assert_eq!(status_outcome(&policy, 403), "auth");
+        assert_eq!(
+            status_outcome(&policy, 500),
+            "CrossModel credits returned status 500 Internal Server Error"
+        );
+    }
+
+    #[test]
     fn converts_crossmodel_micro_units() {
         let result = snapshot_from_parts(
             CreditsResponse {
