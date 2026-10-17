@@ -558,10 +558,10 @@ impl SettingsUpdate {
             settings.set_codex_spark_usage_visible(v);
         }
         if let Some(v) = self.codex_openai_web_extras {
-            settings.set_codex_openai_web_extras(v);
+            settings.set_openai_web_extras(codexbar::core::ProviderId::Codex, v);
         }
         if let Some(v) = self.codex_historical_tracking {
-            settings.set_codex_historical_tracking(v);
+            settings.set_historical_tracking(codexbar::core::ProviderId::Codex, v);
         }
         if let Some(v) = self.codex_external_oauth_sources_allowed {
             settings.codex_external_oauth_sources_allowed = v;
