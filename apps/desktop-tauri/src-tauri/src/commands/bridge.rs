@@ -331,7 +331,7 @@ pub struct ProviderDisplayDetailSnapshot {
 }
 
 /// A frontend-friendly snapshot of one provider's usage data.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderUsageSnapshot {
     #[serde(default)]
@@ -410,6 +410,46 @@ pub struct ProviderUsageSnapshot {
     /// (upstream 0.70.0 #4085); Codex and Claude only.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub quota_burndown: Option<QuotaBurndownSnapshot>,
+}
+
+impl Default for ProviderUsageSnapshot {
+    fn default() -> Self {
+        Self {
+            tertiary_label: None,
+            provider_id: String::new(),
+            display_name: String::new(),
+            primary: RateWindowSnapshot::default(),
+            primary_label: None,
+            secondary: None,
+            secondary_label: None,
+            secondary_label_key: None,
+            model_specific: None,
+            tertiary: None,
+            extra_rate_windows: Vec::new(),
+            inventory: Vec::new(),
+            display_details: Vec::new(),
+            cost: None,
+            plan_name: None,
+            account_email: None,
+            account_label: None,
+            subscription: None,
+            source_label: String::new(),
+            has_successful_claude_cli_quota: false,
+            updated_at: String::new(),
+            error: None,
+            error_state: default_error_state(),
+            pace: None,
+            pace_authoritative: default_pace_authoritative(),
+            account_organization: None,
+            tray_status_label: None,
+            fetch_duration_ms: None,
+            wayfinder_usage: None,
+            open_ai_api_usage: None,
+            throughput: None,
+            session_equivalent_forecast: None,
+            quota_burndown: None,
+        }
+    }
 }
 
 fn default_display_name() -> String {
