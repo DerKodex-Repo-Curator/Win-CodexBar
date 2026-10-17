@@ -291,9 +291,12 @@ fn hidden_account_label(lang: Language, ordinal: usize) -> String {
 
 /// Session and weekly percentages for one Claude account row, from the last
 /// successful check recorded for that account. No recorded check, no percentage.
+/// A window whose reset time has passed is skipped: the stored percentage is
+/// known to be stale (restored cache, failed checks, or refresh turned off).
 fn claude_usage_summary(
     lang: Language,
     state: Option<&crate::commands::ClaudeAccountUsageState>,
+    now: chrono::DateTime<chrono::Utc>,
 ) -> Option<String> {
     let usage = state?.usage.as_ref()?;
     let parts: Vec<String> = [
@@ -302,16 +305,29 @@ fn claude_usage_summary(
     ]
     .into_iter()
     .filter_map(|(key, window)| {
-        window.map(|window| {
-            format!(
-                "{} {:.0}%",
-                locale::get_text(lang, key),
-                window.used_percent
-            )
-        })
+        window
+            .filter(|window| !window_has_reset(window, now))
+            .map(|window| {
+                format!(
+                    "{} {:.0}%",
+                    locale::get_text(lang, key),
+                    window.used_percent
+                )
+            })
     })
     .collect();
     (!parts.is_empty()).then(|| parts.join(", "))
+}
+
+fn window_has_reset(
+    window: &crate::commands::ClaudeAccountWindow,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    window
+        .resets_at
+        .as_deref()
+        .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+        .is_some_and(|at| at <= now)
 }
 
 fn claude_accounts_menu(
@@ -322,6 +338,7 @@ fn claude_accounts_menu(
 ) -> TrayMenuEntry {
     let text = |key| locale::get_text(lang, key);
     let ordinals = ordinals_by_sorted_id(accounts.iter().map(|account| account.id.as_str()));
+    let now = chrono::Utc::now();
     let mut children: Vec<_> = accounts
         .iter()
         .map(|account| {
@@ -333,7 +350,7 @@ fn claude_accounts_menu(
                     |org| format!("{} ({org})", account.email),
                 )
             };
-            let label = match claude_usage_summary(lang, usage.get(&account.id)) {
+            let label = match claude_usage_summary(lang, usage.get(&account.id), now) {
                 Some(summary) => format!("{label} - {summary}"),
                 None => label,
             };
@@ -666,6 +683,50 @@ mod tests {
         );
         // A row with no successful check recorded shows no percentage.
         assert_eq!(menu.children[1].label, "b:org@example.com");
+    }
+
+    #[test]
+    fn claude_usage_summary_skips_windows_past_their_reset() {
+        use crate::commands::{ClaudeAccountUsage, ClaudeAccountUsageState, ClaudeAccountWindow};
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-18T12:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let state = |five_hour: Option<&str>, seven_day: Option<&str>| ClaudeAccountUsageState {
+            usage: Some(ClaudeAccountUsage {
+                five_hour: Some(ClaudeAccountWindow {
+                    used_percent: 42.0,
+                    resets_at: five_hour.map(String::from),
+                }),
+                seven_day: Some(ClaudeAccountWindow {
+                    used_percent: 10.0,
+                    resets_at: seven_day.map(String::from),
+                }),
+                updated_at: "2026-10-18T00:00:00+00:00".into(),
+            }),
+            ..Default::default()
+        };
+        let session = locale::get_text(Language::English, LocaleKey::ProviderSessionLabel);
+        let weekly = locale::get_text(Language::English, LocaleKey::ProviderWeeklyLabel);
+
+        let expired_session = state(Some("2026-10-18T05:00:00Z"), Some("2026-10-20T00:00:00Z"));
+        assert_eq!(
+            claude_usage_summary(Language::English, Some(&expired_session), now),
+            Some(format!("{weekly} 10%"))
+        );
+        let both_expired = state(
+            Some("2026-10-18T12:00:00Z"),
+            Some("2026-10-17T00:00:00+02:00"),
+        );
+        assert_eq!(
+            claude_usage_summary(Language::English, Some(&both_expired), now),
+            None
+        );
+        // Missing or unparseable reset times keep the window.
+        let unknown = state(None, Some("not a date"));
+        assert_eq!(
+            claude_usage_summary(Language::English, Some(&unknown), now),
+            Some(format!("{session} 42%, {weekly} 10%"))
+        );
     }
 
     #[test]
