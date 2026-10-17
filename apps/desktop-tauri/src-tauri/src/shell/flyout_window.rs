@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn panel_fill_matches_the_css_panel_background() {
-        let css = include_str!("../../../src/styles.css");
+        let css = include_str!("../../../src/styles/tray-panel.css");
         let tauri::utils::config::Color(r, g, b, a) = PANEL_FILL;
         assert_eq!(a, 0xFF);
         assert!(css.contains(&format!("--mac-panel-bg: #{r:02x}{g:02x}{b:02x};")));

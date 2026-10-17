@@ -1,3 +1,4 @@
+import type { SettingsSnapshot } from "./types/bridge";
 import { render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,7 +60,8 @@ vi.mock("./hooks/useSurfaceSnapshot", () => ({
 
 import App from "./App";
 import { buildBundle } from "./test/localeHarness";
-import type { BootstrapState, SettingsSnapshot } from "./types/bridge";
+import type { BootstrapState } from "./types/bridge";
+import { makeSettings } from "./test/fixtures";
 
 function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
   return {
@@ -151,7 +153,7 @@ function bootstrap(): BootstrapState {
   return {
     contractVersion: "v1",
     providers: [],
-    settings: settings(),
+    settings: makeSettings(),
   };
 }
 
@@ -161,7 +163,7 @@ describe("App window-label routing", () => {
     webviewWindowMocks.label = "main";
     surfaceMocks.snapshot = { mode: "hidden", target: { kind: "summary" } };
     tauriMocks.getBootstrapState.mockResolvedValue(bootstrap());
-    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(makeSettings());
     tauriMocks.checkForUpdates.mockResolvedValue({
       status: "idle",
       version: null,
