@@ -18,9 +18,8 @@ pub(crate) use identified_requests::{
 };
 pub use quota_windows::{CodexQuotaWindow, codex_quota_windows_from_cache};
 pub(crate) use summary_contract::{
-    CodexCostSummary, CodexHostCostReport, CodexHostCostWindow, CodexHostOutcome,
-    MAX_REMOTE_CODEX_COST_BYTES, REMOTE_CODEX_COST_INVALID, REMOTE_CODEX_COST_UNAVAILABLE,
-    decode_remote_codex_summary,
+    CodexCostSummary, CodexHostCostReport, CodexHostOutcome, MAX_REMOTE_CODEX_COST_BYTES,
+    REMOTE_CODEX_COST_INVALID, REMOTE_CODEX_COST_UNAVAILABLE, decode_remote_codex_summary,
 };
 
 use chrono::{Duration, NaiveDate, Utc};

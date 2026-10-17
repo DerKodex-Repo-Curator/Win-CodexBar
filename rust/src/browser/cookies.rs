@@ -3,11 +3,6 @@
 //! Chromium browsers store cookies in an SQLite database encrypted with DPAPI.
 //! Firefox stores cookies in an unencrypted SQLite database.
 
-#![allow(
-    dead_code,
-    reason = "the cookie API surface is shared across providers and cfg-split Windows/WSLS code paths, so individual helpers are reached only from their own browser/provider callers"
-)]
-
 use std::path::Path;
 
 use aes_gcm::{
@@ -723,17 +718,6 @@ pub fn get_cookie_header_for_domains(domains: &[&str]) -> Result<String, CookieE
         Some(candidate) => Ok(candidate.header()),
         None => Err(scan.exhaustion_error()),
     }
-}
-/// Get a cookie header string for a domain from a specific browser
-pub fn get_cookie_header_from_browser(
-    domain: &str,
-    browser: &super::detection::DetectedBrowser,
-) -> Result<String, CookieError> {
-    let cookies = CookieExtractor::extract_for_domain(browser, domain)?;
-    if cookies.is_empty() {
-        return Err(CookieError::NotFound(domain.to_string()));
-    }
-    Ok(CookieExtractor::build_cookie_header(&cookies))
 }
 
 #[cfg(test)]
