@@ -107,6 +107,7 @@ async function startProofServer() {
     [vite, "--mode", "proof", "--port", String(PROOF_PORT), "--strictPort", "--host", "127.0.0.1"],
     { cwd: appDir, stdio: ["ignore", "pipe", "pipe"] },
   );
+  child.once("error", (error) => fail(2, `proof server failed to start: ${error.message}`));
   // fail() exits the process directly; do not leave the server behind.
   process.once("exit", () => child.kill());
   let log = "";
@@ -392,16 +393,18 @@ async function main() {
   const server = opts.url ? null : await startProofServer();
   const base = opts.url ?? server.base;
   const browser = opts.cdp ? null : await launchBrowser(opts);
-  const cdp = await Cdp.connect(opts.cdp ?? browser.ws);
-  const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
-  const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
-  const page = new Page(cdp, sessionId);
-  await page.send("Runtime.enable");
-  await page.send("Page.enable");
-  if (opts.headed) await page.send("Page.bringToFront");
-
+  let cdp;
+  let targetId;
   let failed = 0;
   try {
+    cdp = await Cdp.connect(opts.cdp ?? browser.ws);
+    ({ targetId } = await cdp.send("Target.createTarget", { url: "about:blank" }));
+    const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
+    const page = new Page(cdp, sessionId);
+    await page.send("Runtime.enable");
+    await page.send("Page.enable");
+    if (opts.headed) await page.send("Page.bringToFront");
+
     for (const scenario of selected) {
       try {
         const shots = await runScenario(page, base, scenario, opts);
@@ -412,9 +415,12 @@ async function main() {
       }
     }
   } finally {
-    await cdp.send("Target.closeTarget", { targetId }).catch(() => {});
-    if (browser) await cdp.send("Browser.close").catch(() => browser.child.kill());
-    cdp.close();
+    if (cdp && targetId) await cdp.send("Target.closeTarget", { targetId }).catch(() => {});
+    if (browser) {
+      if (cdp) await cdp.send("Browser.close").catch(() => browser.child.kill());
+      else browser.child.kill();
+    }
+    cdp?.close();
     server?.stop();
   }
   console.log(`\n${selected.length - failed}/${selected.length} scenarios passed. Screenshots: ${opts.out}`);

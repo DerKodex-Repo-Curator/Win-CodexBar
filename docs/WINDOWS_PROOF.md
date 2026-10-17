@@ -224,8 +224,12 @@ pnpm proof:check                        # starts the proof server, headless brow
 pnpm proof:check -- --headed            # visible window, pauses on each screenshot
 pnpm proof:check -- --only tray         # scenarios whose name contains "tray"
 pnpm proof:check -- --url <base>        # an already-served proof build (dev or dist-proof/)
-pnpm proof:check -- --cdp <ws-url>      # attach to a running or remote browser
+pnpm proof:check -- --cdp <ws-url>      # attach to a running browser on this host
+pnpm proof:check -- --cdp <ws-url> --url <base>  # remote browser; <base> must be reachable from it
 ```
+
+Without `--url`, the runner serves the proof build on `127.0.0.1`, which a
+browser on another host cannot reach.
 
 Screenshots go to `apps/desktop-tauri/.proof/screens/` (git-ignored). The
 browser runs on its own profile in `.proof/browser-profile/`, never a user
