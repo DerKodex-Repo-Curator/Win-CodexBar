@@ -1,5 +1,6 @@
 /* ════════════════════════════════════════════════════════════════════
- * macOS PARITY OVERLAY  (last cascade — wins over earlier rules)
+ * macOS PARITY OVERLAY  (wins over earlier files; parity-settings.css
+ * and parity-overrides.css load later and can override these rules)
  *
  * This block tightens the visual treatment so the Tauri shell mirrors
  * the upstream SwiftUI `MenuContent` (NSMenu w/ NSHostingView items)

@@ -208,8 +208,8 @@
   background: transparent;
 }
 /* ── Form controls: native-feeling macOS look ─────────────────────── */
-/* `.toggle` is now a native checkbox; styles defined earlier in this
-   file. The earlier macOS toggle-switch overrides have been removed. */
+/* `.toggle` is now a native checkbox; styles defined in
+   tokens-and-forms.css. The earlier macOS toggle-switch overrides have been removed. */
 
 .select,
 .number-input,
