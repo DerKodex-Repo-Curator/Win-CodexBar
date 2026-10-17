@@ -455,8 +455,9 @@ fn is_plausible_reset(
 
 /// Remaining seconds until weekly reset, optionally counting only work days.
 ///
-/// `work_days` in `[2, 6]` keeps ISO weekdays `1..=work_days` (Mon..).
-/// Anything else falls back to wall-clock remaining time.
+/// `work_days` in `[2, 7]` keeps ISO weekdays `1..=work_days` (Mon..); 7 counts
+/// every day, which equals wall-clock time. Anything else falls back to
+/// wall-clock remaining time.
 pub fn effective_remaining_seconds(
     now: DateTime<Utc>,
     resets_at: DateTime<Utc>,
@@ -466,7 +467,7 @@ pub fn effective_remaining_seconds(
     let Some(work_days) = work_days else {
         return wall;
     };
-    if !(2..=6).contains(&work_days) {
+    if !(2..=7).contains(&work_days) {
         return wall;
     }
 

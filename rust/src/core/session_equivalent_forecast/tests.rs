@@ -244,60 +244,57 @@ fn grouping_tolerance_merges_nearby_resets() {
     let s = session_secs();
     let base = 1_700_100_000_i64;
     let weekly_reset = base + weekly_secs();
-    let end = base + s;
 
-    // Nearby resets within ±120s must merge into one group (not out-of-order).
-    let single_group = vec![
-        PlanUtilizationSeriesHistory {
-            name: PlanUtilizationSeriesName::Session,
-            window_minutes: SESSION_WINDOW_MINUTES,
-            entries: vec![
-                entry(base + 60, 30.0, end),
-                entry(base + 120, 60.0, end + 100),
-                entry(base + 180, 90.0, end + 110),
-            ],
-        },
-        PlanUtilizationSeriesHistory {
-            name: PlanUtilizationSeriesName::Weekly,
-            window_minutes: WEEKLY_WINDOW_MINUTES,
-            entries: vec![
-                entry(base - 30, 5.0, weekly_reset),
-                entry(base + 60, 8.0, weekly_reset),
-                entry(base + 120, 10.0, weekly_reset),
-                entry(base + 180, 12.0, weekly_reset),
-            ],
-        },
-    ];
-    // One completed group → below minimum sample count, but not an ordering reject.
+    // Baseline: three distinct completed groups produce an estimate.
+    let (histories, now, current_end) = three_sample_histories(base);
+    let baseline = SessionEquivalentBurnEstimator::estimate(&histories, Some(current_end), now, 7)
+        .expect("three distinct session groups must produce an estimate");
+    assert_eq!(baseline.sample_count, 3);
+
+    // Move group 2's resets to 100s after group 1's (inside the 120s tolerance).
+    // Its entries then merge into group 1, leaving two groups: below the minimum.
+    let (mut nearby, _, _) = three_sample_histories(base);
+    let session = nearby
+        .iter_mut()
+        .find(|h| h.name == PlanUtilizationSeriesName::Session)
+        .expect("session series");
+    for captured in session.entries.iter_mut() {
+        if captured.resets_at == Some(ts(base + 2 * s)) {
+            captured.resets_at = Some(ts(base + s + 100));
+            if captured.captured_at == ts(base + 2 * s - 60) {
+                captured.captured_at = ts(base + s + 80);
+            }
+        }
+    }
     assert!(
-        SessionEquivalentBurnEstimator::estimate(&single_group, Some(ts(end + s)), ts(end + 60), 7)
-            .is_none()
+        SessionEquivalentBurnEstimator::estimate(&nearby, Some(current_end), now, 7).is_none()
     );
 
-    // Strictly decreasing resets_at across groups is rejected.
+    // Resets that move backward beyond the tolerance are an ordering reject.
+    // Each entry is plausible on its own, so only the ordering check can reject them.
     let out_of_order = vec![
         PlanUtilizationSeriesHistory {
             name: PlanUtilizationSeriesName::Session,
             window_minutes: SESSION_WINDOW_MINUTES,
             entries: vec![
-                entry(base + 60, 30.0, end + s),
-                entry(base + 120, 60.0, end), // jumps backward beyond tolerance
+                entry(base + s + 100, 30.0, base + 2 * s),
+                entry(base + s + 200, 60.0, base + s + 1_000), // backward beyond tolerance
             ],
         },
         PlanUtilizationSeriesHistory {
             name: PlanUtilizationSeriesName::Weekly,
             window_minutes: WEEKLY_WINDOW_MINUTES,
             entries: vec![
-                entry(base + 60, 8.0, weekly_reset),
-                entry(base + 120, 10.0, weekly_reset),
+                entry(base + s + 100, 8.0, weekly_reset),
+                entry(base + s + 200, 10.0, weekly_reset),
             ],
         },
     ];
     assert!(
         SessionEquivalentBurnEstimator::estimate(
             &out_of_order,
-            Some(ts(end + 2 * s)),
-            ts(end + s + 60),
+            Some(ts(base + s + 1_500)),
+            ts(base + s + 300),
             7
         )
         .is_none()
@@ -418,7 +415,19 @@ fn work_days_out_of_range_uses_wall_clock() {
     let reset = now + Duration::days(2);
     let wall = effective_remaining_seconds(now, reset, None);
     assert!((effective_remaining_seconds(now, reset, Some(1)) - wall).abs() < 1e-9);
+    assert!((effective_remaining_seconds(now, reset, Some(8)) - wall).abs() < 1e-9);
+}
+
+#[test]
+fn seven_work_days_count_every_day() {
+    // A full week that spans a weekend: 7 work days equals wall clock,
+    // 5 work days drops the two weekend days.
+    let now = ts(1_700_400_000);
+    let reset = now + Duration::days(7);
+    let wall = effective_remaining_seconds(now, reset, None);
     assert!((effective_remaining_seconds(now, reset, Some(7)) - wall).abs() < 1e-9);
+    let five = effective_remaining_seconds(now, reset, Some(5));
+    assert!((wall - five - 2.0 * 86_400.0).abs() < 1e-9);
 }
 
 #[test]
@@ -426,7 +435,8 @@ fn history_ring_retains_latest_samples() {
     let mut store = SessionEquivalentHistoryStore::default();
     let scope = ForecastScope::new("claude", None);
     let base = ts(1_700_500_000);
-    for i in 0..30 {
+    // 60 inserts exceed the ring capacity (sample_limit 7 * 8 = 56).
+    for i in 0..60 {
         store.record(
             &scope,
             Some(PlanUtilizationHistoryEntry {
@@ -440,8 +450,9 @@ fn history_ring_retains_latest_samples() {
     }
     let h = store.histories(&scope);
     assert_eq!(h.len(), 1);
-    assert!(h[0].entries.len() <= 7 * 8);
-    assert!((h[0].entries.last().unwrap().used_percent - 29.0).abs() < 1e-9);
+    assert_eq!(h[0].entries.len(), 7 * 8);
+    assert!((h[0].entries.first().unwrap().used_percent - 4.0).abs() < 1e-9);
+    assert!((h[0].entries.last().unwrap().used_percent - 59.0).abs() < 1e-9);
 }
 
 /// Two accounts on one provider must not share burn samples.

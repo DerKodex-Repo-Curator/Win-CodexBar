@@ -1,6 +1,6 @@
 use super::*;
 use crate::codex_workspaces::types::SourceStatus;
-use chrono::Local;
+use crate::cost_reporting_period::cost_bucket_zone;
 use rusqlite::Connection;
 use std::fs::File;
 use std::io::Write;
@@ -46,7 +46,8 @@ fn indexes_two_sessions_into_projects_and_daily() {
     let home = tmp.path().join("codex");
     let sessions = home.join("sessions");
     fs::create_dir_all(&sessions).unwrap();
-    let day = Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let now = Utc::now();
+    let day = cost_bucket_zone().date(now).format("%Y-%m-%d").to_string();
 
     write_session(
         &sessions,
@@ -76,7 +77,7 @@ fn indexes_two_sessions_into_projects_and_daily() {
         .with_codex_home(&home)
         .with_sidecar_path(&sidecar);
 
-    let snap = index.load_snapshot(true, |_| {}).expect("snapshot");
+    let snap = index.load_snapshot_at(true, |_| {}, now).expect("snapshot");
     assert_eq!(snap.indexed_file_count, 2);
     assert_eq!(snap.projects.len(), 2);
     assert!(!snap.daily.is_empty());
@@ -98,7 +99,8 @@ fn archived_and_flat_rollouts_are_indexed_once() {
     let sessions = home.join("sessions");
     let archived = home.join("archived_sessions");
     fs::create_dir_all(&archived).unwrap();
-    let day = Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let now = Utc::now();
+    let day = cost_bucket_zone().date(now).format("%Y-%m-%d").to_string();
     let parts: Vec<&str> = day.split('-').collect();
     let dated_dir = sessions.join(parts[0]).join(parts[1]).join(parts[2]);
     let project = tmp.path().join("proj");
@@ -140,7 +142,7 @@ fn archived_and_flat_rollouts_are_indexed_once() {
     let snap = CodexWorkspacesIndex::new(30)
         .with_codex_home(&home)
         .with_sidecar_path(tmp.path().join("sidecar.sqlite"))
-        .load_snapshot(true, |_| {})
+        .load_snapshot_at(true, |_| {}, now)
         .expect("snapshot");
 
     assert_eq!(snap.indexed_file_count, 3);
@@ -156,7 +158,8 @@ fn cached_snapshot_is_not_reused_for_another_codex_home() {
     let first_home = tmp.path().join("first-codex");
     let first_sessions = first_home.join("sessions");
     fs::create_dir_all(&first_sessions).unwrap();
-    let day = Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let now = Utc::now();
+    let day = cost_bucket_zone().date(now).format("%Y-%m-%d").to_string();
     write_session(
         &first_sessions,
         &day,
@@ -171,7 +174,7 @@ fn cached_snapshot_is_not_reused_for_another_codex_home() {
     let first = CodexWorkspacesIndex::new(30)
         .with_codex_home(&first_home)
         .with_sidecar_path(&sidecar);
-    let first_snapshot = first.load_snapshot(true, |_| {}).unwrap();
+    let first_snapshot = first.load_snapshot_at(true, |_| {}, now).unwrap();
     assert_eq!(first_snapshot.indexed_file_count, 1);
 
     let second_home = tmp.path().join("second-codex");
@@ -256,6 +259,7 @@ fn privacy_redaction_strips_paths_and_titles() {
             totals: UsageTotals::from_parts(10, 0, 5),
             cost_estimate: CostEstimate::default(),
             top_model: Some("gpt-5".into()),
+            turn_performance: None,
         }],
         projects: vec![ProjectUsage {
             id: "project-abc".into(),
@@ -276,13 +280,17 @@ fn privacy_redaction_strips_paths_and_titles() {
                 totals: UsageTotals::from_parts(10, 0, 5),
                 cost_estimate: CostEstimate::default(),
                 top_model: Some("gpt-5".into()),
+                turn_performance: None,
             }],
+            is_projectless: false,
         }],
         daily: vec![],
         source_status: SourceStatus::Complete,
     };
     snap.redact_for_privacy();
-    assert_eq!(snap.projects[0].display_name, "Workspace");
+    assert_eq!(snap.sessions[0].display_title, "Session s1");
+    assert!(snap.sessions[0].cwd.is_none());
+    assert_eq!(snap.projects[0].display_name, "Workspace #1");
     assert!(snap.projects[0].path.is_none());
     assert_eq!(snap.projects[0].top_sessions[0].display_title, "Session s1");
     assert!(snap.projects[0].top_sessions[0].cwd.is_none());

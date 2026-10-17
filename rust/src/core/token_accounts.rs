@@ -167,7 +167,7 @@ impl TokenAccountSupport {
                     "Store multiple Command Code Cookie headers or Better Auth values.",
                     "Cookie: __Secure-commandcode_prod_.session_token=... or better-auth value",
                 )
-                .with_cookie_name("__Secure-better-auth.session_token"),
+                .with_cookie_name("__Secure-commandcode_prod_.session_token"),
             ),
             ProviderId::Qoder => Some(Self::cookie(
                 "Store multiple Qoder Cookie headers.",
@@ -296,6 +296,13 @@ impl TokenAccountSupport {
                 "Store multiple Aixy API keys.",
                 "Paste Aixy API key…",
             )),
+            // Upstream 0.73: labeled IBM Bob API keys via token accounts.
+            ProviderId::IBMBob => Some(Self::api_key(
+                "API keys",
+                "BOBSHELL_API_KEY",
+                "Store multiple IBM Bob API keys.",
+                "Paste API key…",
+            )),
             // These providers don't support token accounts
             ProviderId::Codex
             | ProviderId::Pi
@@ -348,7 +355,25 @@ impl TokenAccountSupport {
             | ProviderId::DevPass
             | ProviderId::XKiro
             | ProviderId::Raycast
-            | ProviderId::Vercel => None,
+            | ProviderId::Vercel
+            | ProviderId::Synthetic
+            | ProviderId::ClawRouter
+            | ProviderId::Langdock
+            | ProviderId::LithosAI
+            | ProviderId::Linkup
+            | ProviderId::MuseAI
+            | ProviderId::WorkBuddy
+            | ProviderId::SailResearch
+            | ProviderId::Sofya
+            | ProviderId::TinyApi
+            | ProviderId::Xapi
+            | ProviderId::Tavily
+            | ProviderId::Exa
+            | ProviderId::Cosmic
+            | ProviderId::Aerostack
+            | ProviderId::Parallel
+            | ProviderId::Fal
+            | ProviderId::Flora => None,
         }
     }
 

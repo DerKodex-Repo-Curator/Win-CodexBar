@@ -1,6 +1,6 @@
 //! Upstream 0.48.0 A1–A5: dashboard routes.
 
-use super::head_bound::{connected_pair, fast_budget, head_test_config};
+use super::head_bound::{fast_budget, head_test_config, roundtrip_with_config};
 use super::*;
 use crate::cli::serve::collection::SnapshotCollection;
 use dashboard::coordinator::{SnapshotArtifacts, SnapshotArtifactsBuildFn, SnapshotBuildFn};
@@ -45,6 +45,7 @@ fn stub_build(identity: DashboardIdMode, with_accounts: bool, delay: Duration) -
                 identity,
                 version: Some("test".to_string()),
                 usage_bars_show_used: None,
+                weekly_work_days: None,
             }))
         })
     })
@@ -77,6 +78,7 @@ fn stub_state_ok() -> dashboard::DashboardState {
                     identity: DashboardIdMode::Redacted,
                     version: Some("test".to_string()),
                     usage_bars_show_used: None,
+                    weekly_work_days: None,
                 };
                 Ok(SnapshotArtifacts {
                     dashboard: build_snapshot(&input),
@@ -143,7 +145,7 @@ fn resolve_route_maps_paths() {
 #[tokio::test]
 async fn metrics_route_is_not_found_until_enabled() {
     let config = dashboard_test_config(Some("s3cret"), Some(stub_state_ok()));
-    let response = request_roundtrip_dashboard(
+    let response = roundtrip_with_config(
         b"GET /metrics HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer s3cret\r\n\r\n",
         config,
     )
@@ -156,7 +158,7 @@ async fn metrics_route_is_not_found_until_enabled() {
 async fn metrics_route_uses_bearer_gate_and_prometheus_content_type() {
     let mut missing_config = dashboard_test_config(Some("s3cret"), Some(stub_state_ok()));
     missing_config.metrics_enabled = true;
-    let missing = request_roundtrip_dashboard(
+    let missing = roundtrip_with_config(
         b"GET /metrics HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
         missing_config,
     )
@@ -166,7 +168,7 @@ async fn metrics_route_uses_bearer_gate_and_prometheus_content_type() {
 
     let mut wrong_config = dashboard_test_config(Some("s3cret"), Some(stub_state_ok()));
     wrong_config.metrics_enabled = true;
-    let wrong = request_roundtrip_dashboard(
+    let wrong = roundtrip_with_config(
         b"GET /metrics HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer nope\r\n\r\n",
         wrong_config,
     )
@@ -177,7 +179,7 @@ async fn metrics_route_uses_bearer_gate_and_prometheus_content_type() {
     ready_state.coordinator.get().await.unwrap();
     let mut ok_config = dashboard_test_config(Some("s3cret"), Some(ready_state));
     ok_config.metrics_enabled = true;
-    let ok = request_roundtrip_dashboard(
+    let ok = roundtrip_with_config(
         b"GET /metrics HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer s3cret\r\n\r\n",
         ok_config,
     )
@@ -199,7 +201,7 @@ async fn metrics_route_uses_bearer_gate_and_prometheus_content_type() {
 async fn metrics_route_returns_500_when_exporter_state_is_missing() {
     let mut config = dashboard_test_config(Some("s3cret"), None);
     config.metrics_enabled = true;
-    let response = request_roundtrip_dashboard(
+    let response = roundtrip_with_config(
         b"GET /metrics HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer s3cret\r\n\r\n",
         config,
     )
@@ -214,7 +216,7 @@ async fn metrics_route_keeps_the_host_allowlist() {
     let mut config = dashboard_test_config(Some("s3cret"), Some(stub_state_ok()));
     config.metrics_enabled = true;
     config.host = "192.0.2.10".to_string();
-    let forbidden = request_roundtrip_dashboard(
+    let forbidden = roundtrip_with_config(
         b"GET /metrics HTTP/1.1\r\nHost: 192.0.2.11:8080\r\nAuthorization: Bearer s3cret\r\n\r\n",
         config,
     )
@@ -227,7 +229,7 @@ async fn metrics_route_keeps_the_host_allowlist() {
 async fn dashboard_home_serves_html_no_store() {
     let config = dashboard_test_config(None, Some(stub_state_ok()));
     let response =
-        request_roundtrip_dashboard(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n", config).await;
+        roundtrip_with_config(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n", config).await;
     assert!(
         response.starts_with("HTTP/1.1 200"),
         "got: {}",
@@ -242,7 +244,7 @@ async fn dashboard_home_serves_html_no_store() {
 #[tokio::test]
 async fn icon_route_serves_svg_immutable_and_404s_unknown() {
     let config = dashboard_test_config(None, None);
-    let response = request_roundtrip_dashboard(
+    let response = roundtrip_with_config(
         b"GET /icons/ProviderIcon-codex.svg HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
         config,
     )
@@ -257,7 +259,7 @@ async fn icon_route_serves_svg_immutable_and_404s_unknown() {
     assert!(response.contains("<svg"));
 
     let config = dashboard_test_config(None, None);
-    let missing = request_roundtrip_dashboard(
+    let missing = roundtrip_with_config(
         b"GET /icons/ProviderIcon-nope.svg HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
         config,
     )
@@ -269,7 +271,7 @@ async fn icon_route_serves_svg_immutable_and_404s_unknown() {
 async fn snapshot_route_gates_on_token_and_advertises_bearer_on_401() {
     // No token -> 401 + WWW-Authenticate (upstream dashboard-rule parity).
     let config = dashboard_test_config(Some("s3cret"), Some(stub_state_ok()));
-    let unauthorized = request_roundtrip_dashboard(
+    let unauthorized = roundtrip_with_config(
         b"GET /dashboard/v1/snapshot HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
         config,
     )
@@ -282,7 +284,7 @@ async fn snapshot_route_gates_on_token_and_advertises_bearer_on_401() {
 
     // Valid token -> 200 + schema v1 payload + no-store.
     let config = dashboard_test_config(Some("s3cret"), Some(stub_state_ok()));
-    let response = request_roundtrip_dashboard(
+    let response = roundtrip_with_config(
             b"GET /dashboard/v1/snapshot HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer s3cret\r\n\r\n",
             config,
         )
@@ -297,13 +299,13 @@ async fn snapshot_route_gates_on_token_and_advertises_bearer_on_401() {
 async fn dashboard_home_and_icons_are_public_when_token_configured() {
     let config = dashboard_test_config(Some("s3cret"), Some(stub_state_ok()));
     let response =
-        request_roundtrip_dashboard(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n", config).await;
+        roundtrip_with_config(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n", config).await;
     assert!(
         response.starts_with("HTTP/1.1 200"),
         "shell stays public: {response}"
     );
     let config = dashboard_test_config(Some("s3cret"), Some(stub_state_ok()));
-    let icon = request_roundtrip_dashboard(
+    let icon = roundtrip_with_config(
         b"GET /icons/ProviderIcon-claude.svg HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
         config,
     )
@@ -324,7 +326,7 @@ async fn snapshot_identity_modes_redact_or_expose() {
         Some(DashboardIdMode::Redacted),
     );
     let config = dashboard_test_config(None, Some(state));
-    let redacted = request_roundtrip_dashboard(
+    let redacted = roundtrip_with_config(
         b"GET /dashboard/v1/snapshot HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
         config,
     )
@@ -342,7 +344,7 @@ async fn snapshot_identity_modes_redact_or_expose() {
         Some(DashboardIdMode::Full),
     );
     let config = dashboard_test_config(None, Some(state));
-    let full = request_roundtrip_dashboard(
+    let full = roundtrip_with_config(
         b"GET /dashboard/v1/snapshot HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
         config,
     )
@@ -358,7 +360,7 @@ async fn snapshot_claude_accounts_nest_under_claude_row() {
         Some(DashboardIdMode::Redacted),
     );
     let config = dashboard_test_config(None, Some(state));
-    let response = request_roundtrip_dashboard(
+    let response = roundtrip_with_config(
         b"GET /dashboard/v1/snapshot HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
         config,
     )
@@ -380,7 +382,7 @@ async fn snapshot_late_build_is_delivered_not_discarded() {
     );
     let config = dashboard_test_config(None, Some(state));
     let started = std::time::Instant::now();
-    let response = request_roundtrip_dashboard(
+    let response = roundtrip_with_config(
         b"GET /dashboard/v1/snapshot HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
         config,
     )
@@ -392,19 +394,4 @@ async fn snapshot_late_build_is_delivered_not_discarded() {
         elapsed >= Duration::from_millis(250),
         "response arrived before the build finished: {elapsed:?}"
     );
-}
-
-/// Roundtrip helper for route-level tests (separate from head-level helper).
-async fn request_roundtrip_dashboard(request: &[u8], config: ServeConfig) -> String {
-    let (server, mut client) = connected_pair().await;
-    let server_task = tokio::spawn(async move { handle_client(server, &config).await });
-    client.write_all(request).await.unwrap();
-    let mut response = Vec::new();
-    tokio::time::timeout(Duration::from_secs(10), client.read_to_end(&mut response))
-        .await
-        .expect("client read timed out")
-        .unwrap();
-    drop(client);
-    server_task.await.unwrap().unwrap();
-    String::from_utf8_lossy(&response).into_owned()
 }

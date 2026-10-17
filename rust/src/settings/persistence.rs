@@ -31,6 +31,8 @@ impl Settings {
         // is the sole source of truth and the flags stay untouched.
         settings.migrate_legacy_usage_item_flags();
 
+        settings.resolve_system_language();
+
         settings
     }
 
@@ -105,6 +107,93 @@ impl Settings {
                 tracing::warn!("Failed to write promote_tray_icon migration marker: {error}");
             }
         }
+    }
+
+    /// Marker written after the one-shot Display mode "minimal" fold (Mac parity PR 3).
+    fn display_mode_fold_marker_path() -> Option<PathBuf> {
+        crate::logging::config_root().map(|p| p.join(".display-mode-fold-v1"))
+    }
+
+    /// The Display mode row is gone. "Minimal" used to force the most-used
+    /// provider into the tray, so carry that into `menu_bar_shows_highest_usage`
+    /// once. Returns true when the settings changed. Later opt-outs stick
+    /// because the marker remains.
+    fn fold_minimal_display_mode(&mut self, already_migrated: bool) -> bool {
+        if already_migrated
+            || self.menu_bar_shows_highest_usage
+            || !self
+                .menu_bar_display_mode
+                .trim()
+                .eq_ignore_ascii_case("minimal")
+        {
+            return false;
+        }
+        self.menu_bar_shows_highest_usage = true;
+        true
+    }
+
+    /// Run the one-shot Display mode fold against the default config root.
+    /// The desktop shell calls this once at startup rather than from
+    /// [`Settings::load`], so unit tests and helpers that load settings never
+    /// write the marker into the real config dir. A `CODEXBAR_CONFIG` run skips it.
+    pub fn apply_display_mode_fold_migration(&mut self) {
+        if settings_file_override().is_some() {
+            return;
+        }
+        let Some(marker) = Self::display_mode_fold_marker_path() else {
+            return;
+        };
+        self.apply_display_mode_fold_with_marker(&marker, Self::save);
+    }
+
+    pub(super) fn apply_display_mode_fold_with_marker(
+        &mut self,
+        marker: &Path,
+        persist: impl FnOnce(&Self) -> anyhow::Result<()>,
+    ) {
+        let already_migrated = marker.exists();
+        if self.fold_minimal_display_mode(already_migrated)
+            && let Err(error) = persist(self)
+        {
+            // No marker: the fold retries on the next launch instead of being lost.
+            tracing::warn!("Failed to persist display mode fold migration: {error}");
+            return;
+        }
+        if !already_migrated && let Some(parent) = marker.parent() {
+            // Best-effort marker dir creation; the write below reports failure.
+            let _created_dir = std::fs::create_dir_all(parent);
+            if let Err(error) = std::fs::write(marker, b"1") {
+                tracing::warn!("Failed to write display mode fold marker: {error}");
+            }
+        }
+    }
+
+    /// Migration #5 write-back: when the loaded file still had legacy
+    /// `provider_usage_thresholds` (already folded into `quota_warnings` on
+    /// read), save once so the file holds only the new key. The desktop shell
+    /// calls this at startup; tests and helpers that only load never write.
+    pub fn apply_quota_warning_migration(&mut self) {
+        self.apply_quota_warning_migration_with(Self::save);
+    }
+
+    pub(super) fn apply_quota_warning_migration_with(
+        &mut self,
+        persist: impl FnOnce(&Self) -> anyhow::Result<()>,
+    ) {
+        if !self.legacy_usage_thresholds_pending {
+            return;
+        }
+        match persist(self) {
+            Ok(()) => self.legacy_usage_thresholds_pending = false,
+            // The legacy key stays readable, so the write retries next launch.
+            Err(error) => tracing::warn!("Failed to persist quota warning migration: {error}"),
+        }
+    }
+
+    /// Store the merged Overview selection: canonical ids, deduplicated,
+    /// at most [`MERGED_OVERVIEW_PROVIDER_LIMIT`].
+    pub fn set_merged_overview_selected_providers(&mut self, ids: Vec<String>) {
+        self.merged_overview_selected_providers = raw::normalize_merged_overview_selection(ids);
     }
 
     /// Save settings to disk

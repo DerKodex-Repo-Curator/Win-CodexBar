@@ -243,6 +243,15 @@ fn session_end_terminates_processes_started_by_the_child() {
 fn test_enriched_path() {
     let path = TtyCommandRunner::enriched_path();
     assert!(!path.is_empty());
-    // Should contain path separator or at least a non-empty path string.
-    assert!(path.contains(';') || !path.is_empty());
+    // Enrichment must keep every entry already on PATH.
+    if let Some(current) = std::env::var_os("PATH") {
+        let enriched = path.as_str();
+        for entry in std::env::split_paths(&current) {
+            let entry = entry.to_string_lossy();
+            assert!(
+                enriched.contains(entry.as_ref()),
+                "enriched PATH dropped {entry}"
+            );
+        }
+    }
 }

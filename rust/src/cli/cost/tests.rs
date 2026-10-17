@@ -346,6 +346,11 @@ fn cost_output_format_rejects_toon() {
 fn group_by_defaults_none_and_accepts_session() {
     assert_eq!(CostGroupBy::from_arg(None), CostGroupBy::None);
     assert_eq!(CostGroupBy::from_arg(Some("session")), CostGroupBy::Session);
+    assert_eq!(CostGroupBy::from_arg(Some("project")), CostGroupBy::Project);
+    assert_eq!(
+        parse_args(&["--group-by", "project"]).group_by.as_deref(),
+        Some("project")
+    );
 }
 
 #[test]
@@ -380,4 +385,23 @@ fn remote_failure_retains_local_report() {
         reports[1].outcome,
         CodexHostOutcome::Failed(crate::codex_costs::REMOTE_CODEX_COST_UNAVAILABLE.to_string())
     );
+}
+
+#[test]
+fn identified_flags_parse_with_remote() {
+    let args = parse_args(&[
+        "--provider",
+        "codex",
+        "--format",
+        "json",
+        "--identified-only",
+        "--identified-end",
+        "1700000000000",
+        "--remote",
+        "build-host",
+    ]);
+    assert!(args.identified_only);
+    assert_eq!(args.identified_end, Some(1_700_000_000_000));
+    assert_eq!(args.remote.as_deref(), Some("build-host"));
+    assert!(!parse_args(&[]).identified_only);
 }

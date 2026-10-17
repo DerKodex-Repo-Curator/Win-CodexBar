@@ -273,7 +273,7 @@ fn quota_reset_fires_when_reset_boundary_advances() {
     );
     let dispatches = detector.evaluate(
         &observation(
-            vec![lane(Some(0.0), key, Some(second), &[0.8], false)],
+            vec![lane(Some(100.0), key, Some(second), &[0.8], false)],
             HookProviderStatus::Unknown,
             None,
         ),
@@ -311,32 +311,27 @@ fn reset_suppresses_depletion_edge_in_same_poll() {
     let mut detector = HookTransitionDetector::new();
     let cfg = config(true, None);
     let key = lane_key(HookQuotaWindow::Session, None);
+    let first = Utc.timestamp_opt(1_000_000, 0).unwrap();
+    let second = first + chrono::Duration::seconds(18_000);
     let _ = detector.evaluate(
         &observation(
-            vec![lane(Some(95.0), key.clone(), None, &[0.8], false)],
+            vec![lane(Some(50.0), key.clone(), Some(first), &[0.8], false)],
             HookProviderStatus::Unknown,
             None,
         ),
         &cfg,
     );
+    // Usage crosses the 80% threshold upward while the reset boundary advances:
+    // only the reset may fire in this poll.
     let dispatches = detector.evaluate(
         &observation(
-            vec![lane(Some(5.0), key, None, &[0.8], false)],
+            vec![lane(Some(100.0), key, Some(second), &[0.8], false)],
             HookProviderStatus::Unknown,
             None,
         ),
         &cfg,
     );
-    assert!(
-        !dispatches
-            .iter()
-            .any(|d| d.event.event == HookEventType::QuotaReached)
-    );
-    assert!(
-        !dispatches
-            .iter()
-            .any(|d| d.event.event == HookEventType::QuotaLow)
-    );
+    assert_eq!(events_of(&dispatches), vec![HookEventType::QuotaReset]);
 }
 
 #[test]

@@ -42,11 +42,10 @@ fn head_at_exact_cap() -> Vec<u8> {
     head.into_bytes()
 }
 
-/// Send `request`, read until the server closes, return the raw response.
+/// Send `request` with `config`, read until the server closes, return the raw response.
 /// Strict outer timeouts turn a hang into a test failure, not a stalled CI.
-async fn request_roundtrip(request: &[u8], budget: Duration, token: Option<&str>) -> String {
+pub(super) async fn roundtrip_with_config(request: &[u8], config: ServeConfig) -> String {
     let (server, mut client) = connected_pair().await;
-    let config = head_test_config(budget, token);
     let server_task = tokio::spawn(async move { handle_client(server, &config).await });
     client.write_all(request).await.unwrap();
     let mut response = Vec::new();
@@ -58,6 +57,10 @@ async fn request_roundtrip(request: &[u8], budget: Duration, token: Option<&str>
     drop(client);
     server_task.await.unwrap().unwrap();
     String::from_utf8_lossy(&response).into_owned()
+}
+
+async fn request_roundtrip(request: &[u8], budget: Duration, token: Option<&str>) -> String {
+    roundtrip_with_config(request, head_test_config(budget, token)).await
 }
 
 #[test]

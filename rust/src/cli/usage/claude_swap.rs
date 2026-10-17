@@ -230,7 +230,7 @@ pub(super) fn render_claude_swap_brief(
         account_parts.join(" | ")
     };
     let provider_status = status
-        .map(|status| format!(" | Status {}", status.description))
+        .map(|status| format!(" | Status {}", status.summary()))
         .unwrap_or_default();
     format!(
         "{} (claude-swap){}: {}{}",
@@ -243,7 +243,7 @@ pub(super) fn render_claude_swap_brief(
 
 async fn claude_swap_provider_status(command: &UsageCommand) -> Option<StatusInfo> {
     if command.fetch_status {
-        fetch_provider_status(ProviderId::Claude.cli_name()).await
+        fetch_provider_status(ProviderId::Claude).await
     } else {
         None
     }
@@ -324,7 +324,7 @@ pub(super) async fn collect_usage_output(command: &UsageCommand) -> UsageOutput 
                             let mut text =
                                 render_text_error(ProviderId::Claude, &error, command.use_color);
                             if let Some(status) = status.as_ref() {
-                                text.push_str(&format!(" | Status {}", status.description));
+                                text.push_str(&format!(" | Status {}", status.summary()));
                             }
                             sections.push(text);
                         }

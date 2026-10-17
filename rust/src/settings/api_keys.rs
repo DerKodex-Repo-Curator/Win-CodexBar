@@ -318,6 +318,15 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://console.aws.amazon.com/bedrock"),
         },
         ProviderConfigInfo {
+            id: ProviderId::CommandCode,
+            name: "Command Code",
+            api_key_env_var: Some("COMMAND_CODE_API_KEY"),
+            api_key_help: Some(
+                "Used by Auto when set and by the API usage source. Without a key, Auto uses browser cookies. Set it here or in COMMAND_CODE_API_KEY.",
+            ),
+            dashboard_url: Some("https://commandcode.ai/studio"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::Codebuff,
             name: "Codebuff",
             api_key_env_var: Some("CODEBUFF_API_KEY"),
@@ -585,6 +594,13 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://crossmodel.ai"),
         },
         ProviderConfigInfo {
+            id: ProviderId::Sofya,
+            name: "Sofya",
+            api_key_env_var: Some("SOFYA_API_KEY"),
+            api_key_help: Some("Saved in CodexBar's local config file. Or set SOFYA_API_KEY."),
+            dashboard_url: Some("https://sofya.co/dashboard"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::Sub2Api,
             name: "sub2api",
             api_key_env_var: Some("SUB2API_API_KEY"),
@@ -644,6 +660,101 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
                 "Save an Aixy API key. Leave the Base URL empty for the hosted gateway, or set it for a self-hosted one. Or set AIXY_API_KEY and AIXY_BASE_URL.",
             ),
             dashboard_url: Some("https://dash.aixy-gateway.com"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Synthetic,
+            name: "Synthetic",
+            api_key_env_var: Some(crate::providers::synthetic::API_KEY_ENV),
+            api_key_help: Some(
+                "Save a Synthetic API key to read the quota endpoint, or set SYNTHETIC_API_KEY.",
+            ),
+            dashboard_url: None,
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Tavily,
+            name: "Tavily",
+            api_key_env_var: Some(crate::providers::tavily::API_KEY_ENV),
+            api_key_help: Some(
+                "Save a Tavily API key to fetch account plan, API key, and pay-as-you-go credit usage. Or set TAVILY_API_KEY.",
+            ),
+            dashboard_url: Some("https://app.tavily.com"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Exa,
+            name: "Exa",
+            api_key_env_var: Some(crate::providers::exa::SERVICE_KEY_ENV),
+            api_key_help: Some(
+                "Save an Exa Team Management service key to fetch selected API key monthly spend (UTC). Both keys must belong to the same team. Or set EXA_SERVICE_KEY and EXA_API_KEY_ID.",
+            ),
+            dashboard_url: Some("https://dashboard.exa.ai/api-keys"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::ClawRouter,
+            name: "ClawRouter",
+            api_key_env_var: Some(crate::providers::clawrouter::API_KEY_ENV),
+            api_key_help: Some(
+                "Save a ClawRouter policy key. Leave the Base URL empty for the hosted service, or set an HTTPS URL for another deployment. Or set CLAWROUTER_API_KEY and CLAWROUTER_BASE_URL.",
+            ),
+            dashboard_url: Some("https://clawrouter.openclaw.ai/dashboard/access"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::IBMBob,
+            name: "IBM Bob",
+            api_key_env_var: Some(crate::providers::ibmbob::API_KEY_ENV),
+            api_key_help: Some(
+                "Create an API key in the IBM Bob web portal and save it here, or set BOBSHELL_API_KEY.",
+            ),
+            dashboard_url: Some("https://bob.ibm.com"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::SailResearch,
+            name: "Sail Research",
+            api_key_env_var: Some(crate::providers::sailresearch::API_KEY_ENV),
+            api_key_help: Some("Saved in CodexBar's local config file. Or set SAIL_API_KEY."),
+            dashboard_url: Some("https://app.sailresearch.com"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Linkup,
+            name: "Linkup",
+            api_key_env_var: Some(crate::providers::linkup::API_KEY_ENV),
+            api_key_help: Some("Stored in the CodexBar config file. Or set LINKUP_API_KEY."),
+            dashboard_url: Some("https://app.linkup.so/organization/billing"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Aerostack,
+            name: "Aerostack",
+            api_key_env_var: Some("AEROSTACK_TOKEN"),
+            api_key_help: Some(
+                "Set an Aerostack account JWT in Settings or AEROSTACK_TOKEN. This is the account bearer token used by the billing API, not an Agent Endpoint key.",
+            ),
+            dashboard_url: Some("https://app.aerostack.dev/settings/billing"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Fal,
+            name: "fal",
+            api_key_env_var: Some("FAL_KEY"),
+            api_key_help: Some(
+                "Key with billing read access (BILLING or READONLY preset). Or set FAL_KEY.",
+            ),
+            dashboard_url: Some("https://fal.ai/dashboard/keys"),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Flora,
+            name: "FLORA",
+            api_key_env_var: Some("FLORA_API_KEY"),
+            api_key_help: Some("Needs billing permission on the workspace. Or set FLORA_API_KEY."),
+            dashboard_url: Some(
+                "https://app.flora.ai/projects?openSettings=true&initialTab=apiKeys",
+            ),
+        },
+        ProviderConfigInfo {
+            id: ProviderId::Cosmic,
+            name: "Cosmic AI",
+            api_key_env_var: Some("COSMIC_TOKEN"),
+            api_key_help: Some(
+                "Get a Personal Access Token from Cosmic AI. Also set COSMIC_PROJECT_ID or the project ID in Settings.",
+            ),
+            dashboard_url: Some("https://app.cosmicjs.com"),
         },
     ]
 }

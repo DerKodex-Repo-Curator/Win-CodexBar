@@ -30,7 +30,16 @@ impl Settings {
             .get(&id)
             .and_then(|c| c.cookie_source.as_deref())
             .unwrap_or(match id {
-                ProviderId::Kimi | ProviderId::Hyper | ProviderId::Groq => "auto",
+                ProviderId::Kimi
+                | ProviderId::Hyper
+                | ProviderId::Groq
+                | ProviderId::Langdock
+                | ProviderId::LithosAI
+                | ProviderId::MuseAI
+                | ProviderId::WorkBuddy
+                | ProviderId::TinyApi
+                | ProviderId::Xapi
+                | ProviderId::Parallel => "auto",
                 _ => DEFAULT_COOKIE_SOURCE,
             })
     }
@@ -78,12 +87,20 @@ impl Settings {
             .unwrap_or("")
     }
 
+    pub fn set_manual_cookie_header(&mut self, id: ProviderId, header: impl Into<String>) {
+        self.provider_config_mut(id).manual_cookie_header = Some(header.into());
+    }
+
     /// API token for `id`, or `""` if unset.
     pub fn api_token(&self, id: ProviderId) -> &str {
         self.provider_configs
             .get(&id)
             .and_then(|c| c.api_token.as_deref())
             .unwrap_or("")
+    }
+
+    pub fn set_api_token(&mut self, id: ProviderId, token: impl Into<String>) {
+        self.provider_config_mut(id).api_token = Some(token.into());
     }
 
     pub fn management_api_token(&self, id: ProviderId) -> Option<&str> {
@@ -184,6 +201,10 @@ impl Settings {
             .unwrap_or(DEFAULT_CODEX_OPENAI_WEB_EXTRAS)
     }
 
+    pub fn set_openai_web_extras(&mut self, id: ProviderId, value: bool) {
+        self.provider_config_mut(id).openai_web_extras = Some(value);
+    }
+
     /// Codex Spark rows are visible by default.
     pub fn spark_usage_visible(&self, id: ProviderId) -> bool {
         self.provider_configs
@@ -238,6 +259,34 @@ impl Settings {
             .get(&id)
             .map(|c| c.historical_tracking)
             .unwrap_or(false)
+    }
+
+    pub fn set_historical_tracking(&mut self, id: ProviderId, value: bool) {
+        self.provider_config_mut(id).historical_tracking = value;
+    }
+
+    /// Codex "Local session cost estimates" option (persisted only).
+    pub fn local_session_cost_ledger_enabled(&self, id: ProviderId) -> bool {
+        self.provider_configs
+            .get(&id)
+            .is_some_and(|c| c.local_session_cost_ledger_enabled)
+    }
+
+    pub fn set_local_session_cost_ledger_enabled(&mut self, id: ProviderId, value: bool) {
+        self.provider_config_mut(id)
+            .local_session_cost_ledger_enabled = value;
+    }
+
+    /// Codex OpenAI web battery saver option (persisted only).
+    pub fn openai_web_battery_saver_enabled(&self, id: ProviderId) -> bool {
+        self.provider_configs
+            .get(&id)
+            .is_some_and(|c| c.openai_web_battery_saver_enabled)
+    }
+
+    pub fn set_openai_web_battery_saver_enabled(&mut self, id: ProviderId, value: bool) {
+        self.provider_config_mut(id)
+            .openai_web_battery_saver_enabled = value;
     }
 
     /// Per-provider "avoid keychain prompts" toggle (currently claude-only).
@@ -404,5 +453,32 @@ impl Settings {
         } else {
             Some(trimmed)
         }
+    }
+
+    /// The user-overridden accent color for `id`, or `None` to use the
+    /// shipped brand color.
+    pub fn accent_color(&self, id: ProviderId) -> Option<&str> {
+        self.provider_configs
+            .get(&id)
+            .and_then(|c| c.accent_color.as_deref())
+            .filter(|s| !s.trim().is_empty())
+    }
+
+    /// Set the accent color override for `id`. Pass an empty string or
+    /// `None` to clear the override and revert to the shipped brand color.
+    pub fn set_accent_color(&mut self, id: ProviderId, color: Option<impl Into<String>>) {
+        let entry = self.provider_config_mut(id);
+        entry.accent_color = color
+            .map(Into::into)
+            .filter(|s: &String| !s.trim().is_empty());
+    }
+
+    /// Resolve the effective accent color for `id`: the user override if
+    /// set, otherwise the shipped brand color from the provider registry.
+    pub fn effective_accent_color(&self, id: ProviderId) -> String {
+        if let Some(override_color) = self.accent_color(id) {
+            return override_color.trim().to_string();
+        }
+        crate::core::brand_color(id).to_string()
     }
 }

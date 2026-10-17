@@ -1,6 +1,6 @@
 //! Scan Codex rollout JSONL + read-only catalog → project usage snapshot.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -12,8 +12,11 @@ use crate::codex_costs::codex_period_start;
 use crate::core::{CostUsageDayRange, CostUsagePricing, JsonlScanner, sha256_hex};
 
 use super::freshness::is_reusable;
+use super::project_names::apply_saved_project_names;
+use super::projectless::apply_projectless_chats;
 use super::sidecar::{SidecarError, WorkspaceUsageSidecar};
 use super::thread_names::apply_session_names_and_ranking;
+use super::turn_performance::{CodexTurnPerformanceSummary, TurnSample, scan_session_turns};
 use super::types::{
     CodexLocalProjectUsageSnapshot, CostEstimate, DailyPoint, Progress, ProgressPhase,
     ProjectUsage, SessionUsage, SourceStatus, UsageTotals, untitled_session_label,
@@ -94,7 +97,6 @@ impl CodexWorkspacesIndex {
         self
     }
 
-    #[cfg(test)]
     pub fn with_sidecar_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.sidecar_path_override = Some(path.into());
         self
@@ -148,11 +150,18 @@ impl CodexWorkspacesIndex {
             match sidecar.load_latest_snapshot(scope.scope_signature(), self.history_days) {
                 Ok(Some(mut cached)) if is_reusable(cached.updated_at, now, &zone) => {
                     cached.source_status = source_status;
+                    let sqlite_env = non_empty_env("CODEX_SQLITE_HOME");
                     apply_session_names_and_ranking(
                         &mut cached,
                         &scope.codex_home,
-                        non_empty_env("CODEX_SQLITE_HOME").as_deref(),
+                        sqlite_env.as_deref(),
                     );
+                    apply_saved_project_names(
+                        &mut cached,
+                        &scope.codex_home,
+                        sqlite_env.as_deref(),
+                    );
+                    apply_projectless_chats(&mut cached, &scope.codex_home, sqlite_env.as_deref());
                     return Ok(cached);
                 }
                 Ok(_) => {}
@@ -207,6 +216,9 @@ impl CodexWorkspacesIndex {
 
         progress(Progress::phase(ProgressPhase::IndexingProjects));
         let mut session_buckets: HashMap<String, SessionBucket> = HashMap::new();
+        // Completed turns keyed by turn id per session, so a turn copied into
+        // two rollout files counts once.
+        let mut session_turns: HashMap<String, BTreeMap<String, TurnSample>> = HashMap::new();
         let mut daily_acc: HashMap<String, DailyAcc> = HashMap::new();
         let mut indexed = 0u32;
         let mut skipped = 0u32;
@@ -215,6 +227,11 @@ impl CodexWorkspacesIndex {
             match index_one_file(path, &range) {
                 Some(parsed) => {
                     merge_daily(&mut daily_acc, &parsed.day_models);
+                    let turns = scan_session_turns(path, &parsed.session_id, &range);
+                    session_turns
+                        .entry(parsed.session_id.clone())
+                        .or_default()
+                        .extend(turns.into_iter().map(|turn| (turn.turn_id.clone(), turn)));
                     let entry = session_buckets
                         .entry(parsed.session_id.clone())
                         .or_insert_with(|| SessionBucket::new(&parsed));
@@ -241,12 +258,15 @@ impl CodexWorkspacesIndex {
             }
         }
 
+        for (session_id, turns) in session_turns {
+            if let Some(bucket) = session_buckets.get_mut(&session_id) {
+                let samples = turns.into_values().collect::<Vec<_>>();
+                bucket.turn_performance = CodexTurnPerformanceSummary::from_samples(&samples);
+            }
+        }
+
         let mut projects = build_projects(&session_buckets);
-        projects.sort_by(|a, b| {
-            b.latest_activity
-                .cmp(&a.latest_activity)
-                .then_with(|| a.display_name.cmp(&b.display_name))
-        });
+        sort_projects(&mut projects);
 
         let mut total = UsageTotals::default();
         for p in &projects {
@@ -286,11 +306,10 @@ impl CodexWorkspacesIndex {
             daily,
             source_status,
         };
-        apply_session_names_and_ranking(
-            &mut snapshot,
-            &scope.codex_home,
-            non_empty_env("CODEX_SQLITE_HOME").as_deref(),
-        );
+        let sqlite_env = non_empty_env("CODEX_SQLITE_HOME");
+        apply_session_names_and_ranking(&mut snapshot, &scope.codex_home, sqlite_env.as_deref());
+        apply_saved_project_names(&mut snapshot, &scope.codex_home, sqlite_env.as_deref());
+        apply_projectless_chats(&mut snapshot, &scope.codex_home, sqlite_env.as_deref());
 
         progress(Progress::phase(ProgressPhase::Saving));
         sidecar.publish_snapshot(&snapshot)?;
@@ -327,6 +346,7 @@ struct SessionBucket {
     model_tokens: HashMap<String, u64>,
     started_at: Option<DateTime<Utc>>,
     latest_activity: Option<DateTime<Utc>>,
+    turn_performance: Option<CodexTurnPerformanceSummary>,
 }
 
 impl SessionBucket {
@@ -343,6 +363,7 @@ impl SessionBucket {
             model_tokens: HashMap::new(),
             started_at: None,
             latest_activity: None,
+            turn_performance: None,
         }
     }
 
@@ -398,6 +419,7 @@ impl SessionBucket {
             totals: self.totals,
             cost_estimate: self.cost,
             top_model: self.top_model(),
+            turn_performance: self.turn_performance.clone(),
         }
     }
 }
@@ -408,6 +430,18 @@ struct DailyAcc {
     cached_input_tokens: u64,
     known_usd: f64,
     unknown_tokens: u64,
+}
+
+/// Project order: latest activity first, then display name, then id.
+/// The id tie-break keeps same-named projects (and their privacy numbers) in
+/// one order across scans; projects are built from a `HashMap`.
+pub(super) fn sort_projects(projects: &mut [ProjectUsage]) {
+    projects.sort_by(|a, b| {
+        b.latest_activity
+            .cmp(&a.latest_activity)
+            .then_with(|| a.display_name.cmp(&b.display_name))
+            .then_with(|| a.id.cmp(&b.id))
+    });
 }
 
 fn build_projects(sessions: &HashMap<String, SessionBucket>) -> Vec<ProjectUsage> {
@@ -455,6 +489,7 @@ fn build_projects(sessions: &HashMap<String, SessionBucket>) -> Vec<ProjectUsage
                 latest_activity: latest,
                 top_model,
                 top_sessions: Vec::new(),
+                is_projectless: false,
             }
         })
         .collect()

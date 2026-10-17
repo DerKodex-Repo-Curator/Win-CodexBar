@@ -46,7 +46,7 @@ const EXPECTED_SUPPORT_ROWS: &[&str] = &[
     "Mistral|Session tokens|Store multiple Mistral Cookie headers.|Cookie: ...|cookie|true|None",
     "Manus|Session tokens|Store multiple Manus session_id values.|session_id value or Cookie: ...|cookie|true|Some(\"session_id\")",
     "MiMo|Session tokens|Store multiple Xiaomi MiMo Cookie headers.|Cookie: api-platform_serviceToken=...; userId=...|cookie|true|None",
-    "CommandCode|Session tokens|Store multiple Command Code Cookie headers or Better Auth values.|Cookie: __Secure-commandcode_prod_.session_token=... or better-auth value|cookie|true|Some(\"__Secure-better-auth.session_token\")",
+    "CommandCode|Session tokens|Store multiple Command Code Cookie headers or Better Auth values.|Cookie: __Secure-commandcode_prod_.session_token=... or better-auth value|cookie|true|Some(\"__Secure-commandcode_prod_.session_token\")",
     "Qoder|Session tokens|Store multiple Qoder Cookie headers.|Cookie: ...|cookie|true|None",
     "CodeBuddy|Session tokens|Store CodeBuddy CN Cookie headers (from plans-usage DevTools cURL).|Cookie: session=...; ... (or paste full Cookie header)|cookie|true|None",
     "Sakana|Session tokens|Store multiple Sakana Console Cookie headers.|Cookie: ...|cookie|true|None",
@@ -67,6 +67,7 @@ const EXPECTED_SUPPORT_ROWS: &[&str] = &[
     "Doubao|Ark API keys|Store labeled Volcengine Ark API keys.|Ark API key|env:ARK_API_KEY|false|None",
     "OpenCodeGo|API keys or sessions|Store labeled OpenCode Go API keys or Cookie headers.|API key or Cookie: ...|env_or_cookie:OPENCODE_API_KEY|false|None",
     "Aixy|API keys|Store multiple Aixy API keys.|Paste Aixy API key…|env:AIXY_API_KEY|false|None",
+    "IBMBob|API keys|Store multiple IBM Bob API keys.|Paste API key…|env:BOBSHELL_API_KEY|false|None",
 ];
 
 #[test]
@@ -85,6 +86,23 @@ fn test_token_account_support() {
     assert!(!TokenAccountSupport::is_supported(ProviderId::Hyper));
     assert!(!TokenAccountSupport::is_supported(ProviderId::GitKraken));
     assert!(!TokenAccountSupport::is_supported(ProviderId::Bifrost));
+}
+
+#[test]
+fn command_code_bare_token_uses_production_cookie_name() {
+    // Upstream #4212: a pasted bare token gets the live production cookie name.
+    assert_eq!(
+        TokenAccountSupport::normalized_cookie_header(ProviderId::CommandCode, "bare-value"),
+        "__Secure-commandcode_prod_.session_token=bare-value"
+    );
+    // Explicit cookie headers are preserved untouched.
+    assert_eq!(
+        TokenAccountSupport::normalized_cookie_header(
+            ProviderId::CommandCode,
+            "__Secure-better-auth.session_token=legacy"
+        ),
+        "__Secure-better-auth.session_token=legacy"
+    );
 }
 
 #[test]
@@ -223,6 +241,20 @@ fn aixy_token_accounts_inject_api_key_env() {
     assert_eq!(
         env.get("AIXY_API_KEY").map(String::as_str),
         Some("gak_fixture")
+    );
+}
+
+#[test]
+fn ibmbob_token_accounts_inject_bobshell_api_key_env() {
+    let support = TokenAccountSupport::for_provider(ProviderId::IBMBob).unwrap();
+    assert_eq!(support.title, "API keys");
+    assert_eq!(support.subtitle, "Store multiple IBM Bob API keys.");
+    assert_eq!(support.placeholder, "Paste API key…");
+    assert!(!support.requires_manual_cookie_source);
+    let env = TokenAccountSupport::env_override(ProviderId::IBMBob, "bob_fixture").unwrap();
+    assert_eq!(
+        env.get("BOBSHELL_API_KEY").map(String::as_str),
+        Some("bob_fixture")
     );
 }
 
