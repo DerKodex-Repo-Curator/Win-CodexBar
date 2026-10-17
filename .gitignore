@@ -56,6 +56,7 @@ tmpclaude-*
 *.swo
 node_modules/
 dist/
+dist-proof/
 nul
 
 # Local scripts and env files
