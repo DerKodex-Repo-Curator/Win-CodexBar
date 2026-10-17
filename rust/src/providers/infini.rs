@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, RateWindow, SourceMode,
+    UsageSnapshot,
 };
 
 /// Infini AI Coding Plan 用量数据
@@ -279,13 +279,112 @@ mod tests {
         assert_eq!(usage.seven_day_percentage(), 0.0);
         assert_eq!(usage.thirty_day_percentage(), 0.0);
     }
+
+    // Cases moved from the never-compiled rust/tests/providers/test_infini.rs.
+
+    async fn usage_server(status: usize, body: &str) -> (mockito::ServerGuard, mockito::Mock) {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/maas/coding/usage")
+            .with_status(status)
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create_async()
+            .await;
+        (server, mock)
+    }
+
+    #[tokio::test]
+    async fn client_fetch_usage_success() {
+        let (server, mock) = usage_server(
+            200,
+            r#"{
+            "5_hour": {"quota": 5000, "used": 1000, "remain": 4000},
+            "7_day": {"quota": 30000, "used": 5000, "remain": 25000},
+            "30_day": {"quota": 60000, "used": 10000, "remain": 50000}
+        }"#,
+        )
+        .await;
+        let client = InfiniClient::new("sk-cp-test-key".to_string()).with_base_url(server.url());
+
+        let usage = client.fetch_usage().await.unwrap();
+
+        mock.assert_async().await;
+        assert_eq!(usage.five_hour.quota, 5000);
+        assert_eq!(usage.seven_day.used, 5000);
+    }
+
+    #[tokio::test]
+    async fn client_fetch_usage_unauthorized() {
+        let (server, mock) = usage_server(401, "").await;
+        let client = InfiniClient::new("invalid-key".to_string()).with_base_url(server.url());
+
+        let result = client.fetch_usage().await;
+
+        mock.assert_async().await;
+        assert!(matches!(result, Err(InfiniError::Unauthorized)));
+    }
+
+    /// One provider instance covers the four single-assert identity tests
+    /// (id, metadata, sources, supports_web) from the old file.
+    #[test]
+    fn provider_identity_and_sources() {
+        let provider = InfiniProvider::new("sk-cp-test".to_string());
+        assert_eq!(provider.id(), ProviderId::Infini);
+        let meta = provider.metadata();
+        assert_eq!(meta.id, ProviderId::Infini);
+        assert_eq!(meta.display_name, "Infini");
+        let sources = provider.available_sources();
+        assert!(sources.contains(&SourceMode::Auto));
+        assert!(sources.contains(&SourceMode::Web));
+        assert!(provider.supports_web());
+    }
+
+    #[tokio::test]
+    async fn provider_fetch_usage_success() {
+        let (server, mock) = usage_server(
+            200,
+            r#"{
+            "5_hour": {"quota": 5000, "used": 2500, "remain": 2500},
+            "7_day": {"quota": 30000, "used": 15000, "remain": 15000},
+            "30_day": {"quota": 60000, "used": 30000, "remain": 30000}
+        }"#,
+        )
+        .await;
+        let provider = InfiniProvider::new(String::new()).with_base_url(server.url());
+        let ctx = FetchContext {
+            api_key: Some("sk-cp-test-key".to_string()),
+            ..Default::default()
+        };
+
+        let result = provider.fetch_usage(&ctx).await.unwrap();
+
+        mock.assert_async().await;
+        assert_eq!(result.usage.primary.used_percent, 50.0);
+        let secondary = result.usage.secondary.expect("7-day window");
+        assert_eq!(secondary.used_percent, 50.0);
+    }
+
+    #[tokio::test]
+    async fn provider_fetch_usage_unauthorized() {
+        let (server, mock) = usage_server(401, "").await;
+        let provider = InfiniProvider::new(String::new()).with_base_url(server.url());
+        let ctx = FetchContext {
+            api_key: Some("invalid-key".to_string()),
+            ..Default::default()
+        };
+
+        let result = provider.fetch_usage(&ctx).await;
+
+        mock.assert_async().await;
+        assert!(result.is_err());
+    }
 }
 
 // ==================== InfiniProvider ====================
 
 /// Infini AI Provider 实现
 pub struct InfiniProvider {
-    metadata: ProviderMetadata,
     client: InfiniClient,
 }
 
@@ -293,19 +392,6 @@ impl InfiniProvider {
     /// 创建新的 InfiniProvider
     pub fn new(api_key: String) -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Infini,
-                display_name: "Infini",
-                session_label: "5-Hour",
-                weekly_label: "7-Day",
-                supports_opus: false,
-                supports_credits: false,
-                default_enabled: false,
-                is_primary: false,
-                dashboard_url: Some("https://cloud.infini-ai.com"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             client: InfiniClient::new(api_key),
         }
     }
@@ -332,10 +418,6 @@ impl Default for InfiniProvider {
 impl Provider for InfiniProvider {
     fn id(&self) -> ProviderId {
         ProviderId::Infini
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
@@ -396,14 +478,6 @@ impl Provider for InfiniProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
-    }
-
-    fn supports_cli(&self) -> bool {
-        false
     }
 }
 

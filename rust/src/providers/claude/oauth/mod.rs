@@ -10,12 +10,17 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::core::{NamedRateWindow, ProviderError, ProviderFetchResult, RateWindow, UsageSnapshot};
+use crate::core::{
+    CostSnapshot, NamedRateWindow, ProviderDisplayDetail, ProviderError, ProviderFetchResult,
+    RateWindow, UsageSnapshot,
+};
 
 mod credentials_store;
 mod profile;
 mod refresh;
 mod usage_gate;
+
+use super::spend_window;
 
 pub(super) fn clear_account_cache(credential_path: &std::path::Path) {
     credentials_store::clear_cache();
@@ -121,8 +126,24 @@ pub struct OAuthUsageResponse {
     #[serde(rename = "extraUsage", alias = "extra_usage")]
     pub extra_usage: Option<ExtraUsage>,
 
+    /// Promotional cloud-credits block. Display-only: read by `cloud_credits`,
+    /// never by the quota windows.
+    #[serde(default)]
+    pub iguana_necktie: Option<serde_json::Value>,
+
     #[serde(default)]
     limits: Vec<super::scoped_weekly::ScopedWeeklyLimit>,
+}
+
+/// Display row for the promotional cloud-credits block, when present and valid.
+fn cloud_credits_row(
+    response: &OAuthUsageResponse,
+    now: DateTime<Utc>,
+) -> Option<ProviderDisplayDetail> {
+    response
+        .iguana_necktie
+        .as_ref()
+        .and_then(|block| super::cloud_credits::detail_from_block(block, now))
 }
 
 /// A usage window from the OAuth API
@@ -289,6 +310,34 @@ fn account_refresh_error(error: ProviderError) -> ProviderError {
     }
 }
 
+/// Whether the standalone saved account may stand in for Claude Code's login.
+/// An explicit OAuth token from the environment always wins, so it is checked
+/// first; the standalone account never replaces it or runs ahead of it.
+fn standalone_fallback_applies() -> bool {
+    !credentials_store::environment_token_present() && !super::claude_code_consent()
+}
+
+/// Standalone results carry the saved account's own labels and never the
+/// identity a token may hold, because the token says nothing about which
+/// login Claude CLI uses.
+fn apply_standalone_summary(
+    fetched: &mut ProviderFetchResult,
+    summary: Option<super::accounts::ClaudeAccount>,
+) {
+    fetched.account_identity = None;
+    let Some(summary) = summary else {
+        return;
+    };
+    let usage = &mut fetched.usage;
+    usage.account_email = Some(summary.email);
+    if summary.organization.is_some() {
+        usage.account_organization = summary.organization;
+    }
+    if let Some(plan) = summary.plan {
+        usage.login_method = Some(super::claude_plan_label(&plan));
+    }
+}
+
 impl ClaudeOAuthFetcher {
     const USAGE_URL: &'static str = "https://api.anthropic.com/api/oauth/usage";
     const DEFAULT_RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(5 * 60);
@@ -305,6 +354,16 @@ impl ClaudeOAuthFetcher {
     pub async fn fetch(&self) -> Result<ProviderFetchResult, ProviderError> {
         let _account_operation = super::accounts::CREDENTIAL_OPERATION.lock().await;
         let account_manager = super::accounts::AccountManager::new().ok();
+        // Without consent Claude Code's credentials stay closed. A saved
+        // account that was never installed into Claude Code is CodexBar's own
+        // and can still supply usage, so a stale or absent Claude Code login
+        // does not blank the panel. An environment token is checked first.
+        if standalone_fallback_applies()
+            && let Some(manager) = &account_manager
+            && let Some(result) = self.fetch_standalone_saved_account(manager).await
+        {
+            return result;
+        }
         let saved_account_id = account_manager
             .as_ref()
             .and_then(|manager| manager.current_account_id().ok().flatten());
@@ -342,6 +401,44 @@ impl ClaudeOAuthFetcher {
         let (oauth, active) = manager
             .usage_credentials(id)
             .map_err(|e| ProviderError::Other(e.to_string()))?;
+        self.fetch_saved_account(&manager, id, &oauth, active).await
+    }
+
+    /// Usage for the one saved account CodexBar may use without Claude Code's
+    /// credentials. `None` when there is no such account, so the caller keeps
+    /// its normal path (and its own error) for that case.
+    async fn fetch_standalone_saved_account(
+        &self,
+        manager: &super::accounts::AccountManager,
+    ) -> Option<Result<ProviderFetchResult, ProviderError>> {
+        let (id, oauth) = match manager.standalone_usage_credentials() {
+            Ok(Some(account)) => account,
+            Ok(None) => return None,
+            Err(error) => {
+                tracing::warn!(%error, "Could not read CodexBar's saved Claude accounts");
+                return None;
+            }
+        };
+        tracing::debug!("Claude Code credentials are off; using the standalone saved account");
+        let mut result = self.fetch_saved_account(manager, &id, &oauth, false).await;
+        match &mut result {
+            Ok(fetched) => apply_standalone_summary(fetched, manager.saved_summary(&id)),
+            Err(error) => {
+                tracing::warn!(%error, "Claude usage from the standalone saved account failed");
+            }
+        }
+        Some(result)
+    }
+
+    /// Resolve, refresh when needed, and query one saved account. `active`
+    /// means Claude Code holds the same login, so a refresh also updates it.
+    async fn fetch_saved_account(
+        &self,
+        manager: &super::accounts::AccountManager,
+        id: &str,
+        oauth: &serde_json::Value,
+        active: bool,
+    ) -> Result<ProviderFetchResult, ProviderError> {
         let oauth = oauth.to_string();
         let source = credentials_store::CredentialSource::saved_account(
             manager.usage_source_path(),
@@ -350,13 +447,7 @@ impl ClaudeOAuthFetcher {
         );
         let credentials = credentials_store::parse_credentials_json(&oauth)?;
         let (credentials, outcome) = self
-            .ensure_fresh_credentials(
-                credentials,
-                source.clone(),
-                Some(&manager),
-                Some(id),
-                active,
-            )
+            .ensure_fresh_credentials(credentials, source.clone(), Some(manager), Some(id), active)
             .await;
         if credentials.is_expired()
             && let Some(error) = outcome
@@ -372,7 +463,7 @@ impl ClaudeOAuthFetcher {
             expired.expires_at = Some(Utc::now());
             credentials_store::store_refreshed(&source, &expired);
             let (refreshed, outcome) = self
-                .ensure_fresh_credentials(expired, source, Some(&manager), Some(id), active)
+                .ensure_fresh_credentials(expired, source, Some(manager), Some(id), active)
                 .await;
             if let Some(error) = outcome {
                 return Err(account_refresh_error(error));
@@ -411,6 +502,7 @@ impl ClaudeOAuthFetcher {
     ) -> Result<ProviderFetchResult, ProviderError> {
         let usage_response = self.fetch_usage(&credentials).await?;
         let mut usage = self.build_usage_snapshot(&usage_response, &credentials);
+        let spend_cost = apply_spend_only_extra_usage(&mut usage, &usage_response);
         // Header email only; a profile failure leaves the usage result intact.
         if usage.account_email.is_none()
             && let Some(email) = profile::fetch_email(
@@ -422,7 +514,11 @@ impl ClaudeOAuthFetcher {
         {
             usage = usage.with_email(email);
         }
-        let mut result = ProviderFetchResult::new(usage, "oauth");
+        let mut result = ProviderFetchResult::new(usage, "oauth")
+            .with_display_detail(cloud_credits_row(&usage_response, Utc::now()));
+        if let Some(cost) = spend_cost {
+            result = result.with_cost(cost);
+        }
         if let Some(identity) = credential_identity(&credentials) {
             result = result.with_account_identity(identity);
         }
@@ -831,6 +927,29 @@ impl Default for ClaudeOAuthFetcher {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Upstream #4480: a spend-only OAuth account's monthly cap becomes the
+/// primary meter. Returns the cost to attach, or `None` when not projected.
+fn apply_spend_only_extra_usage(
+    usage: &mut UsageSnapshot,
+    response: &OAuthUsageResponse,
+) -> Option<CostSnapshot> {
+    let extra = response.extra_usage.as_ref()?;
+    if !extra.is_enabled.unwrap_or(false) {
+        return None;
+    }
+    // Extra usage amounts are reported in cents.
+    let currency = extra.currency.clone().unwrap_or_else(|| "USD".to_string());
+    let mut cost = CostSnapshot::new(
+        extra.used_credits.unwrap_or(0.0) / 100.0,
+        currency,
+        "Monthly",
+    );
+    if let Some(limit) = extra.monthly_limit {
+        cost = cost.with_limit(limit / 100.0);
+    }
+    spend_window::project_spend_only(usage, &mut cost).then_some(cost)
 }
 
 /// Parse an ISO8601 date string

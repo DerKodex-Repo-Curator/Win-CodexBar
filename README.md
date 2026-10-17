@@ -53,7 +53,7 @@ For Claude, browser cookies (the `sessionKey`) are preferred, because they match
 - **Tray panel.** Left-click the tray icon, or press `Ctrl+Shift+U`, to open a light panel in the Mac style. It shows one card per provider. Each card has a metric row per usage window, with a bar, the reset time and, when the provider supports it, a pace line such as "10% in deficit · Runs out in 9d 8h".
 - **Tray icon.** The icon shows bars or a percentage for one provider, or two providers stacked. With **Color Pace Indicator** on, it turns green when you are behind pace and red when you are ahead.
 - **Float bar.** An optional always-on-top strip with the same usage.
-- **Providers.** More than 90 providers, including Codex, Claude, Copilot, OpenRouter, Cursor, Gemini, DeepSeek, MiniMax, Kiro, Antigravity, Groq, Qoder and Sakana AI. Each provider has its own source, credentials, cookie import, token accounts, API keys and region settings.
+- **Providers.** More than 100 providers, including Codex, Claude, Copilot, OpenRouter, Cursor, Gemini, DeepSeek, MiniMax, Kiro, Antigravity, Groq, Qoder and Sakana AI. Each provider has its own source, credentials, cookie import, token accounts, API keys and region settings.
 - **Settings.** A window with a sidebar: General, Usage & Spend, Notifications, Menu Bar, Menu, Advanced, Hooks and About, then one page per provider. Each provider row has a status dot.
 - **Provider status pages.** With **Check provider status** on (the default), the app polls the status pages of providers such as OpenAI, Claude, Copilot, Cursor and Gemini. An incident colors that provider's dot in Settings and adds a line to the tray panel and the tray tooltip.
 - **Per-provider quota warnings.** Each provider can use the global warning thresholds, its own thresholds, or none.
@@ -95,6 +95,7 @@ For Claude, browser cookies (the `sessionKey`) are preferred, because they match
 | Ollama | Cookies / API Key | Usage, Cloud Models, Pace windows |
 | Azure OpenAI | API Key | Deployment |
 | T3 Chat | Cookies / cURL | Base, Overage |
+| TinyApi | Browser cookies / manual Cookie header | Available credits |
 | TypeSafe | Browser cookies / manual Cookie header | Billing-cycle spend, balance, expiring credits |
 | OpenRouter | API Key | Credits |
 | JetBrains AI | Local Config | Usage |
@@ -114,12 +115,14 @@ For Claude, browser cookies (the `sessionKey`) are preferred, because they match
 | Xiaomi MiMo | Cookies | Balance, Token Plan |
 | Doubao | API Key | Request Limits |
 | Command Code | Cookies | Monthly Credits, Purchased Credits |
+| Aerostack | API Key (Account JWT) | Monthly AI tokens used/allowance |
+| Cosmic AI | API Key | Input tokens used/allowance, Output tokens used/allowance |
 | StepFun | Oasis Token | 5h, Weekly, Token refresh |
 | Venice | API Key / Web session | USD / DIEM Balance, Bundled credits (web session expires in about 60 s) |
 | OpenAI | Admin API / API Key | Usage, Requests, Project-scoped cost, Credit Balance |
 | Grok | Cookies / auth.json | Billing |
 | Helmcode (also NaN Builders) | Browser cookies / manual Cookie header | Per-model token quotas, reset windows, Helmcode prepaid balance |
-| Raycast | Cookies (Chrome auto or manual) | Monthly AI credits, plan, renewal |
+| Raycast | Cookies (browser auto or manual) | Monthly AI credits, plan, renewal |
 | Replicate | Cookies / token accounts | Monthly spend, credit balance |
 | Aixy | API Key / token accounts | Applicable budget balances, 7-day key usage |
 | ClawRouter | API Key | Monthly budget, requests, tokens, routed-provider spend |
@@ -132,10 +135,19 @@ For Claude, browser cookies (the `sessionKey`) are preferred, because they match
 | IBM Bob | API Key / token accounts | Monthly Bobcoins, per-team budgets |
 | xKiro | API Key | Daily free tokens |
 | Synthetic | API Key | Five-hour quota, Weekly tokens, Hourly search, Plan |
+| Sail Research | API Key | Organization credit balance, spend for the reported range (up to 30 days) |
+| Linkup | API Key | Account credit balance |
+| Sofya | API Key | Available, plan and purchased credits, Monthly reset (free tier) |
+| Tavily | API Key | Account plan usage, API key usage, Pay-as-you-go credits |
+| Exa | API Key + Scope | Selected API key monthly spend (UTC) |
 | Langdock | Browser cookies / manual Cookie header | Session (5h), Weekly |
 | LithosAI | Browser cookies / manual Cookie header | Prepaid balance (Credits), UTC spend today and this month |
 | Muse (muse.ai) | Browser cookies / manual Cookie header | Weekly usage, tokens left, top-up tokens |
 | WorkBuddy | Browser cookies / manual Cookie header | Monthly credits left, plan, cycle reset |
+| X API | Browser cookies / manual Cookie header | Prepaid balance, purchased and free credits |
+| Parallel | Browser cookies / manual Cookie header | Prepaid account balance, pending debit |
+| fal | API Key | Account credit balance |
+| FLORA | API Key + workspace ID | Workspace available balance, member limit, month-to-date spend |
 
 </details>
 

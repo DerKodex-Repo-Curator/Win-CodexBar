@@ -1,6 +1,8 @@
 use super::*;
 use chrono::TimeZone;
 
+mod guards;
+mod missing_inventory;
 mod plan_change;
 
 #[test]
@@ -11,6 +13,21 @@ fn reset_diagnostic_codes_are_fixed_and_redacted() {
         ResetDiagnosticReason::ExpiredCandidate.code(),
         ResetDiagnosticReason::ChangedCreditInventory.code(),
         ResetDiagnosticReason::StoreRequested.code(),
+        ResetDiagnosticReason::MissingPreviousSnapshot.code(),
+        ResetDiagnosticReason::MissingWeeklyWindow.code(),
+        ResetDiagnosticReason::ResetThresholdMismatch.code(),
+        ResetDiagnosticReason::InvalidResetBoundary.code(),
+        ResetDiagnosticReason::InconsistentResetBoundary.code(),
+        ResetDiagnosticReason::UnsupportedResetBoundary.code(),
+        ResetDiagnosticReason::PlanMismatch.code(),
+        ResetDiagnosticReason::PlanChanged.code(),
+        ResetDiagnosticReason::MissingCreditInventory.code(),
+        ResetDiagnosticReason::EvidenceVersionMismatch.code(),
+        ResetDiagnosticReason::FutureCandidate.code(),
+        ResetDiagnosticReason::StaleObservation.code(),
+        ResetDiagnosticReason::MinimumDelay.code(),
+        ResetDiagnosticReason::ConfirmedObservation.code(),
+        ResetDiagnosticReason::StoreUnavailable.code(),
     ];
     assert_eq!(
         codes,
@@ -20,6 +37,21 @@ fn reset_diagnostic_codes_are_fixed_and_redacted() {
             "expiredCandidate",
             "changedCreditInventory",
             "storeRequested",
+            "missingPreviousSnapshot",
+            "missingWeeklyWindow",
+            "resetThresholdMismatch",
+            "invalidResetBoundary",
+            "inconsistentResetBoundary",
+            "unsupportedResetBoundary",
+            "planMismatch",
+            "planChanged",
+            "missingCreditInventory",
+            "evidenceVersionMismatch",
+            "futureCandidate",
+            "staleObservation",
+            "minimumDelay",
+            "confirmedObservation",
+            "storeUnavailable",
         ]
     );
     assert!(codes.iter().all(|code| {
@@ -45,6 +77,37 @@ fn snapshot(used: f64, reset_days: i64, captured_minutes: i64) -> UsageSnapshot 
     snapshot
 }
 
+/// Exact-OAuth confirmation at `now()` where both fetches saw the same inventory.
+fn confirm(
+    state: &mut AccountState,
+    initial: &UsageSnapshot,
+    confirmation: &UsageSnapshot,
+    inventory: Option<&CreditInventory>,
+) -> ConfirmationDecision {
+    confirmation_decision(
+        state,
+        initial,
+        inventory,
+        confirmation,
+        inventory,
+        true,
+        now(),
+    )
+}
+
+/// A candidate admitted at `now()` against the `credit-a` inventory.
+fn pending_candidate(weekly: RateWindow, plan: &str) -> DelayedCandidate {
+    DelayedCandidate {
+        evidence_version: EVIDENCE_VERSION,
+        first_observed_at: now(),
+        created_at: now(),
+        snapshot_updated_at: now(),
+        weekly,
+        plan: Some(plan.to_string()),
+        inventory: inventory("credit-a"),
+    }
+}
+
 fn inventory(id: &str) -> CreditInventory {
     CreditInventory {
         available_count: 1,
@@ -54,6 +117,7 @@ fn inventory(id: &str) -> CreditInventory {
             status: "available".to_string(),
             expires_at: Some(now() + chrono::Duration::days(3)),
         }],
+        observed_at: now(),
     }
 }
 
@@ -92,6 +156,7 @@ fn inventory_retains_consumed_status_rows_but_counts_only_available_credits() {
                 expires_at: None,
             },
         ],
+        observed_at: None,
     };
     let inventory = super::inventory(Some(&reset), now()).expect("credit inventory");
     assert_eq!(inventory.available_count, 1);
@@ -120,15 +185,7 @@ fn early_low_usage_requires_confirmation_without_spending_credit() {
     );
     let confirmation = snapshot(0.0, 9, 2);
     assert_eq!(
-        confirmation_decision(
-            &mut state,
-            &initial,
-            Some(&inv),
-            &confirmation,
-            Some(&inv),
-            true,
-            now(),
-        ),
+        confirm(&mut state, &initial, &confirmation, Some(&inv)),
         ConfirmationDecision::Preserve
     );
     assert!(state.candidate.is_some());
@@ -142,15 +199,7 @@ fn delayed_candidate_publishes_after_sixty_seconds_and_expires_after_thirty_minu
     let confirmation = snapshot(0.0, 9, 2);
     let inv = inventory("credit-a");
     assert_eq!(
-        confirmation_decision(
-            &mut state,
-            &initial,
-            Some(&inv),
-            &confirmation,
-            Some(&inv),
-            true,
-            now(),
-        ),
+        confirm(&mut state, &initial, &confirmation, Some(&inv)),
         ConfirmationDecision::Preserve
     );
     let current = snapshot(0.0, 9, 3);
@@ -193,15 +242,10 @@ fn delayed_candidate_publishes_after_sixty_seconds_and_expires_after_thirty_minu
 #[test]
 fn credits_only_refresh_retains_candidate_and_account_scope_hashes_differ() {
     let mut state = baseline();
-    state.candidate = Some(DelayedCandidate {
-        evidence_version: EVIDENCE_VERSION,
-        first_observed_at: now(),
-        created_at: now(),
-        snapshot_updated_at: now(),
-        weekly: snapshot(0.0, 9, 1).secondary.unwrap(),
-        plan: Some("ChatGPT Pro".to_string()),
-        inventory: inventory("credit-a"),
-    });
+    state.candidate = Some(pending_candidate(
+        snapshot(0.0, 9, 1).secondary.unwrap(),
+        "ChatGPT Pro",
+    ));
     let mut credits_only = UsageSnapshot::new(RateWindow::new(20.0));
     credits_only.updated_at = now() + chrono::Duration::minutes(1);
     // A credits-only refresh has no weekly window and may omit both plan and
@@ -230,15 +274,10 @@ fn credits_only_refresh_retains_candidate_and_account_scope_hashes_differ() {
 #[test]
 fn credits_only_refresh_candidate_survives_state_reload_until_full_usage() {
     let mut state = baseline();
-    state.candidate = Some(DelayedCandidate {
-        evidence_version: EVIDENCE_VERSION,
-        first_observed_at: now(),
-        created_at: now(),
-        snapshot_updated_at: now(),
-        weekly: snapshot(0.0, 9, 1).secondary.unwrap(),
-        plan: Some("ChatGPT Pro".to_string()),
-        inventory: inventory("credit-a"),
-    });
+    state.candidate = Some(pending_candidate(
+        snapshot(0.0, 9, 1).secondary.unwrap(),
+        "ChatGPT Pro",
+    ));
     let candidate_before = serde_json::to_value(&state.candidate).unwrap();
     let mut credits_only = UsageSnapshot::new(RateWindow::new(20.0));
     credits_only.updated_at = now() + chrono::Duration::minutes(1);
@@ -305,17 +344,10 @@ fn consumed_credit_allows_immediate_confirmation() {
     let consumed = CreditInventory {
         available_count: 0,
         credits: Vec::new(),
+        observed_at: now(),
     };
     assert_eq!(
-        confirmation_decision(
-            &mut state,
-            &initial,
-            Some(&consumed),
-            &confirmation,
-            Some(&consumed),
-            true,
-            now(),
-        ),
+        confirm(&mut state, &initial, &confirmation, Some(&consumed)),
         ConfirmationDecision::Publish
     );
 }
@@ -353,15 +385,7 @@ fn rolling_state() -> AccountState {
     let initial = rolling_snapshot(0.0, 7 * 24 * 60, 1, WEEK_SECONDS - 1);
     let confirmation = rolling_snapshot(0.0, 7 * 24 * 60, 2, WEEK_SECONDS - 2);
     assert_eq!(
-        confirmation_decision(
-            &mut state,
-            &initial,
-            Some(&inv),
-            &confirmation,
-            Some(&inv),
-            true,
-            now(),
-        ),
+        confirm(&mut state, &initial, &confirmation, Some(&inv)),
         ConfirmationDecision::Preserve
     );
     assert!(state.candidate.is_some());
@@ -673,6 +697,7 @@ fn persisted_stale_baseline_recovers_after_delayed_reset_confirmation_across_rel
                 status: "available".to_string(),
                 expires_at: Some(next_boundary + chrono::Duration::days(1)),
             }],
+            observed_at: at(-360),
         };
         let weekly_snapshot = |used: f64, boundary: DateTime<Utc>, updated_at: DateTime<Utc>| {
             let weekly =

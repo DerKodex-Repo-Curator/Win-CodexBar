@@ -4,7 +4,6 @@
 use crate::settings::UpdateChannel;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tokio::sync::watch;
 
 const GITHUB_REPO: &str = "nesszer/Win-CodexBar";
@@ -37,15 +36,7 @@ pub struct UpdateInfo {
     pub version: String,
     pub download_url: String,
     pub expected_sha256: Option<String>,
-    #[allow(
-        dead_code,
-        reason = "update metadata fields are deserialized for version comparison but not all are read"
-    )]
     pub release_url: String,
-    #[allow(
-        dead_code,
-        reason = "update metadata fields are deserialized for version comparison but not all are read"
-    )]
     pub release_notes: String,
     pub delivery: UpdateDelivery,
 }
@@ -68,12 +59,6 @@ struct GitHubRelease {
     assets: Vec<GitHubAsset>,
     #[serde(default)]
     draft: bool,
-    #[serde(default)]
-    #[allow(
-        dead_code,
-        reason = "update metadata fields are deserialized for version comparison but not all are read"
-    )]
-    prerelease: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,10 +73,6 @@ struct GitHubAsset {
 ///
 /// When `channel` is `UpdateChannel::Beta`, includes pre-release versions.
 /// When `channel` is `UpdateChannel::Stable`, only considers stable releases.
-#[allow(
-    dead_code,
-    reason = "update check response fields are deserialized for parsing but not all are read"
-)]
 pub async fn check_for_updates() -> Option<UpdateInfo> {
     check_for_updates_with_channel(UpdateChannel::Stable).await
 }
@@ -202,31 +183,6 @@ fn parse_version_triplet(v: &str) -> (u32, u32, u32) {
     )
 }
 
-fn installer_version_from_name(name: &str) -> Option<(u32, u32, u32)> {
-    let lower = name.to_ascii_lowercase();
-    let stem = lower
-        .strip_suffix("-setup.exe")
-        .or_else(|| lower.strip_suffix(".msi"))?;
-
-    let version_candidate = stem.split_once('-').map(|(_, rest)| rest).unwrap_or(stem);
-    let version_text: String = version_candidate
-        .chars()
-        .skip_while(|ch| !ch.is_ascii_digit())
-        .take_while(|ch| ch.is_ascii_digit() || *ch == '.')
-        .collect();
-
-    if version_text.is_empty() {
-        return None;
-    }
-
-    let version = parse_version_triplet(&version_text);
-    if version == (0, 0, 0) {
-        return None;
-    }
-
-    Some(version)
-}
-
 fn parse_sha256_digest(digest: &str) -> Option<&str> {
     let (algo, hex) = digest.split_once(':')?;
     if !algo.eq_ignore_ascii_case("sha256") {
@@ -247,15 +203,6 @@ fn is_newer_version(remote: &str, current: &str) -> bool {
     let current_v = parse_version_triplet(current);
 
     remote_v > current_v
-}
-
-/// Get the current version
-#[allow(
-    dead_code,
-    reason = "update info struct reserved for future UI integration"
-)]
-pub fn current_version() -> &'static str {
-    CURRENT_VERSION
 }
 
 /// Get the download directory for updates
@@ -441,40 +388,6 @@ fn sha256_file(file_path: &Path) -> Result<String, String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Start background download of an update
-///
-/// Returns a receiver that can be polled for progress updates.
-#[allow(
-    dead_code,
-    reason = "update info struct reserved for future UI integration"
-)]
-pub fn start_background_download(
-    update_info: UpdateInfo,
-) -> (
-    Arc<watch::Receiver<UpdateState>>,
-    std::thread::JoinHandle<()>,
-) {
-    let (tx, rx) = watch::channel(UpdateState::Available);
-    let rx = Arc::new(rx);
-
-    let handle = std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            match download_update(&update_info, tx.clone()).await {
-                Ok(_path) => {
-                    // UpdateState::Ready is already sent by download_update
-                }
-                Err(e) => {
-                    // Best-effort failure signal; the receiver may already be gone.
-                    let _failure_signal = tx.send(UpdateState::Failed(e));
-                }
-            }
-        });
-    });
-
-    (rx, handle)
-}
-
 /// Apply a downloaded update by spawning the installer and exiting
 ///
 /// This function will:
@@ -538,22 +451,30 @@ fn windows_update_relaunch_path(current_exe: &Path) -> PathBuf {
 
 #[cfg(target_os = "windows")]
 fn spawn_windows_installer(installer_path: &Path, relaunch_path: &Path) -> Result<(), String> {
-    use std::process::Command;
-
     let plan = windows_installer_launch_plan(installer_path)?;
-    Command::new(windows_powershell_path())
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            &windows_installer_apply_script(&plan, std::process::id(), relaunch_path),
-        ])
+    windows_installer_command(&plan, std::process::id(), relaunch_path)
         .spawn()
         .map_err(|e| format!("Failed to launch installer: {}", e))?;
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn windows_installer_command(
+    plan: &WindowsInstallerLaunchPlan,
+    current_pid: u32,
+    relaunch_path: &Path,
+) -> std::process::Command {
+    let mut command = std::process::Command::new(windows_powershell_path());
+    // インラインコマンドなので、実行ポリシーを上書きする必要はない。
+    command.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-WindowStyle",
+        "Hidden",
+        "-Command",
+        &windows_installer_apply_script(plan, current_pid, relaunch_path),
+    ]);
+    command
 }
 
 #[cfg(target_os = "windows")]
@@ -646,62 +567,6 @@ fn windows_powershell_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("powershell.exe"))
 }
 
-/// Check if there's a pending update ready to install
-#[allow(
-    dead_code,
-    reason = "update info struct reserved for future UI integration"
-)]
-pub fn get_pending_update() -> Option<PathBuf> {
-    let download_dir = get_download_dir()?;
-
-    if !download_dir.exists() {
-        return None;
-    }
-
-    find_pending_installer_in_dir(&download_dir)
-}
-
-fn find_pending_installer_in_dir(download_dir: &Path) -> Option<PathBuf> {
-    let current_version = parse_version_triplet(CURRENT_VERSION);
-
-    // Only treat newer installer assets as pending updates, and prefer the highest
-    // installer version when multiple cached installers are present.
-    std::fs::read_dir(download_dir)
-        .ok()?
-        .filter_map(|entry| entry.ok())
-        .filter_map(|entry| {
-            let path = entry.path();
-            let file_name = path.file_name()?.to_str()?;
-            let installer_version = installer_version_from_name(file_name)?;
-            if installer_version <= current_version {
-                return None;
-            }
-
-            let modified = entry
-                .metadata()
-                .ok()
-                .and_then(|meta| meta.modified().ok())
-                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|duration| duration.as_secs())
-                .unwrap_or(0);
-
-            Some(((installer_version, modified), path))
-        })
-        .max_by_key(|(sort_key, _)| *sort_key)
-        .map(|(_, path)| path)
-}
-
-/// Clean up downloaded updates
-#[allow(
-    dead_code,
-    reason = "update info struct reserved for future UI integration"
-)]
-pub fn cleanup_downloads() {
-    if let Some(download_dir) = get_download_dir() {
-        let _cleaned = std::fs::remove_dir_all(&download_dir);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -739,7 +604,6 @@ mod tests {
                 },
             ],
             draft: false,
-            prerelease: false,
         };
 
         let update = select_release_target(&release).expect("update target");
@@ -764,7 +628,6 @@ mod tests {
                 digest: None,
             }],
             draft: false,
-            prerelease: false,
         };
 
         let update = select_release_target(&release).expect("update target");
@@ -774,64 +637,6 @@ mod tests {
             "https://github.com/nesszer/Win-CodexBar/releases/tag/v1.2.6"
         );
         assert!(!update.supports_auto_apply());
-    }
-
-    #[test]
-    fn finds_newest_pending_installer_and_ignores_portable_exe() {
-        let temp = tempfile::tempdir().expect("temp dir");
-        let (major, minor, patch) = parse_version_triplet(CURRENT_VERSION);
-        let portable = temp.path().join("codexbar.exe");
-        let older = temp
-            .path()
-            .join(format!("CodexBar-{}.{}.{}-Setup.exe", major, minor, patch));
-        let newer = temp.path().join(format!(
-            "CodexBar-{}.{}.{}-Setup.exe",
-            major,
-            minor,
-            patch + 1
-        ));
-
-        std::fs::write(&portable, b"portable").expect("write portable");
-        std::fs::write(&older, b"older installer").expect("write older installer");
-        std::fs::write(&newer, b"newer installer").expect("write newer installer");
-
-        let pending = find_pending_installer_in_dir(temp.path()).expect("pending installer");
-
-        assert_eq!(pending, newer);
-    }
-
-    #[test]
-    fn ignores_cached_installers_for_current_or_older_versions() {
-        let temp = tempfile::tempdir().expect("temp dir");
-        let (major, minor, patch) = parse_version_triplet(CURRENT_VERSION);
-        let current = temp
-            .path()
-            .join(format!("CodexBar-{}.{}.{}-Setup.exe", major, minor, patch));
-        let older = temp.path().join(format!(
-            "CodexBar-{}.{}.{}-Setup.exe",
-            major,
-            minor,
-            patch.saturating_sub(1)
-        ));
-
-        std::fs::write(&current, b"current installer").expect("write current installer");
-        std::fs::write(&older, b"older installer").expect("write older installer");
-
-        assert!(find_pending_installer_in_dir(temp.path()).is_none());
-    }
-
-    #[test]
-    fn parses_prerelease_installer_names_for_beta_updates() {
-        let (major, minor, patch) = parse_version_triplet(CURRENT_VERSION);
-        assert_eq!(
-            installer_version_from_name(&format!(
-                "CodexBar-{}.{}.{}-beta.1-Setup.exe",
-                major,
-                minor,
-                patch + 1
-            )),
-            Some((major, minor, patch + 1))
-        );
     }
 
     #[test]
@@ -890,6 +695,74 @@ mod tests {
         ));
         assert!(script.contains("-PassThru -Wait"));
         assert!(script.contains(r"Start-Process -FilePath 'C:\Program Files\CodexBar\codexbar.exe' -ArgumentList @('menubar')"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_installer_helper_preserves_restricted_execution_policy() {
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let temp = tempfile::tempdir().expect("temp dir");
+        let plan = WindowsInstallerLaunchPlan {
+            program: windows_powershell_path(),
+            args: [
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                "exit 0",
+            ]
+            .map(std::ffi::OsString::from)
+            .to_vec(),
+        };
+        let mut previous_process = std::process::Command::new(windows_powershell_path())
+            .args(["-NoProfile", "-NonInteractive", "-Command", "exit 0"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .expect("previous process");
+        let command = windows_installer_command(
+            &plan,
+            previous_process.id(),
+            &temp.path().join("absent-desktop.exe"),
+        );
+        let mut args: Vec<_> = command.get_args().map(std::ffi::OsString::from).collect();
+        assert!(
+            !args.iter().any(|arg| arg
+                .to_string_lossy()
+                .eq_ignore_ascii_case("-ExecutionPolicy")),
+            "update helper must not override the inherited execution policy"
+        );
+        let script = args.pop().expect("inline update command");
+        args.push(
+            format!(
+                "{}; Write-Output $p.ExitCode; Get-ExecutionPolicy",
+                script.to_string_lossy()
+            )
+            .into(),
+        );
+        let output = std::process::Command::new(command.get_program())
+            .args(args)
+            .env("PSExecutionPolicyPreference", "Restricted")
+            // PowerShell 7 のモジュール検索先を Windows PowerShell に引き継がせない。
+            .env_remove("PSModulePath")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .expect("update helper");
+        previous_process.wait().expect("reap previous process");
+
+        assert!(
+            output.status.success(),
+            "update helper failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .replace("\r\n", "\n"),
+            "0\nRestricted"
+        );
     }
 
     #[cfg(target_os = "windows")]

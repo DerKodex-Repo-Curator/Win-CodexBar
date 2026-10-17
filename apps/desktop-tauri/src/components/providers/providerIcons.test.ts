@@ -8,20 +8,16 @@ import { PROVIDER_ICON_REGISTRY, brandColorOnDark, providerBarAccent } from "./p
 const REPO_ROOT = import.meta.dirname + "/../../../../../";
 
 /**
- * The `ProviderId::X => "#RRGGBB"` rows of the Rust `brand_color` table in
- * `rust/src/core/provider.rs`, keyed by the lowercased variant name (which
- * is the registry id for every provider).
+ * The `spec(P::X, "cli", "Display", "#RRGGBB")` rows of the Rust provider spec
+ * table in `rust/src/core/provider/spec.rs`, keyed by the lowercased variant
+ * name (which is the registry id for every provider).
  */
 function rustBrandColors(): Map<string, string> {
-  // CI checks out with CRLF line endings; normalize so the "\n}\n" search below matches.
-  const source = readFileSync(REPO_ROOT + "rust/src/core/provider.rs", "utf8").replace(/\r\n/g, "\n");
-  const start = source.indexOf("pub fn brand_color(id: ProviderId)");
-  const end = source.indexOf("\n}\n", start);
+  const source = readFileSync(REPO_ROOT + "rust/src/core/provider/spec.rs", "utf8");
   const rows = new Map<string, string>();
-  if (start < 0 || end < 0) return rows;
-  for (const match of source
-    .slice(start, end)
-    .matchAll(/ProviderId::(\w+) => "(#[0-9A-Fa-f]{6})"/g)) {
+  for (const match of source.matchAll(
+    /spec\(\s*P::(\w+),\s*"[^"]*",\s*"[^"]*",\s*"(#[0-9A-Fa-f]{6})"/g,
+  )) {
     rows.set(match[1].toLowerCase(), match[2].toLowerCase());
   }
   return rows;
@@ -70,6 +66,7 @@ const MAC_PARITY_ACCENTS: Array<[string, string]> = [
   ["chutes", "#3184ff"],
   ["deepgram", "#6467f2"],
   ["doubao", "#3370ff"],
+  ["exa", "#0143d9"],
   ["grok", "#10a37f"],
   ["groq", "#f56844"],
   ["helmcode", "#4934e1"],
@@ -85,6 +82,7 @@ const MAC_PARITY_ACCENTS: Array<[string, string]> = [
   ["sakana", "#2975db"],
   ["stepfun", "#2196f2"],
   ["t3chat", "#f56647"],
+  ["tinyapi", "#f97316"],
   ["typesafe", "#111111"],
   ["v0", "#111111"],
   ["warp", "#938bb4"],
@@ -105,6 +103,14 @@ describe("provider icon registry", () => {
     expect(svg).toContain("<svg");
     expect(svg).toContain('fill="currentColor"');
     expect(svg).not.toContain('fill="#000"');
+  });
+
+  it("ships the official Devin hexagon mark as a currentColor template", () => {
+    const entry = PROVIDER_ICON_REGISTRY.devin;
+    expect(entry.svgPath).toContain('viewBox="0 0 128 128"');
+    expect(entry.svgPath).toContain('fill="currentColor"');
+    expect(entry.svgPath).not.toContain("<rect");
+    expect(entry.brandColor.toLowerCase()).toBe("#317cff");
   });
 
   it("does not expose the retired Crof provider", () => {
@@ -162,7 +168,10 @@ describe("provider icon registry", () => {
       "aixy",
       "deepinfra",
       "elevenlabs",
+      "flora",
+      "linkup",
       "manus",
+      "parallel",
       "replicate",
       "synthetic",
       "typesafe",

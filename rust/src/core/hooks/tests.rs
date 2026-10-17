@@ -2,6 +2,25 @@ use super::*;
 use std::sync::Arc;
 
 #[test]
+fn timestamps_are_utc_seconds_with_z_and_clamp_before_epoch() {
+    let at = |secs: i64, nanos: u32| {
+        HookEvent::new(HookEventType::QuotaLow, "codex")
+            .with_timestamp(chrono::DateTime::from_timestamp(secs, nanos).unwrap())
+            .timestamp
+    };
+    assert_eq!(at(0, 0), "1970-01-01T00:00:00Z");
+    assert_eq!(at(-5, 0), "1970-01-01T00:00:00Z");
+    assert_eq!(at(-1, 500_000_000), "1970-01-01T00:00:00Z");
+    assert_eq!(at(951_782_400, 0), "2000-02-29T00:00:00Z");
+    assert_eq!(at(1_760_000_000, 999_000_000), "2025-10-09T08:53:20Z");
+    assert_eq!(at(4_102_444_799, 0), "2099-12-31T23:59:59Z");
+    let now = HookEvent::new(HookEventType::QuotaLow, "codex").timestamp;
+    assert_eq!(now.len(), 20);
+    assert!(now.ends_with('Z'));
+    assert!(chrono::DateTime::parse_from_rfc3339(&now).is_ok());
+}
+
+#[test]
 fn payload_env_includes_event_and_remaining() {
     let event = HookEvent::new(HookEventType::QuotaLow, "claude")
         .with_used_percent(80.0)
@@ -159,7 +178,7 @@ fn config_matching_respects_enabled_flag() {
         events: vec![],
         provider: None,
         threshold: None,
-        executable: PathBuf::from("C:\\Windows\\System32\\cmd.exe"),
+        executable: absolute_executable("cmd.exe"),
         arguments: vec![],
         timeout_secs: 5,
     };
@@ -204,6 +223,14 @@ fn rate_limiter_key_is_stable() {
     let _ = Arc::new(a);
 }
 
+fn absolute_executable(name: &str) -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(r"C:\Tools").join(name)
+    } else {
+        PathBuf::from("/usr/local/bin").join(name)
+    }
+}
+
 fn rule_with(arguments: usize) -> HookRule {
     HookRule {
         enabled: true,
@@ -211,7 +238,7 @@ fn rule_with(arguments: usize) -> HookRule {
         events: Vec::new(),
         provider: None,
         threshold: None,
-        executable: PathBuf::from(r"C:\Tools\notify.exe"),
+        executable: absolute_executable("notify.exe"),
         arguments: (0..arguments).map(|i| format!("--arg{i}")).collect(),
         timeout_secs: 10,
     }

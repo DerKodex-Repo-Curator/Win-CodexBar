@@ -2,11 +2,6 @@
 //!
 //! Handles per-event custom WAV files, built-in CodexBar sounds, and Windows system sounds.
 
-#![allow(
-    dead_code,
-    reason = "sound playback types reserved for future alert audio integration"
-)]
-
 use crate::settings::{NotificationSoundPaths, NotificationSoundTheme, Settings};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -14,7 +9,6 @@ use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::sync::{OnceLock, mpsc};
 
-const MINIMUM_WAV_SIZE: usize = 44;
 const TAG_SIZE: usize = 4;
 const RIFF_TAG_OFFSET: usize = 0;
 const RIFF_SIZE_OFFSET: usize = 4;
@@ -381,6 +375,12 @@ static PLAYBACK_QUEUE: OnceLock<Result<mpsc::Sender<PlaybackRequest>, String>> =
 
 #[cfg(target_os = "windows")]
 fn enqueue_playback(request: PlaybackRequest) -> Result<(), SoundError> {
+    // Unit tests drive the real notification paths; without this every
+    // `cargo test` run plays alert sounds on the developer's speakers.
+    if cfg!(test) {
+        drop(request);
+        return Ok(());
+    }
     let sender = PLAYBACK_QUEUE.get_or_init(|| {
         let (sender, receiver) = mpsc::channel();
         std::thread::Builder::new()
@@ -415,6 +415,9 @@ fn playback_worker(receiver: mpsc::Receiver<PlaybackRequest>) {
 mod tests {
     use super::*;
 
+    /// A canonical PCM WAV header is 44 bytes; generated sounds must carry samples past it.
+    const MINIMUM_WAV_SIZE: usize = 44;
+
     fn find_chunk<'a>(wav: &'a [u8], tag: &[u8; TAG_SIZE]) -> Option<&'a [u8]> {
         let mut offset = RIFF_HEADER_SIZE;
         while offset + CHUNK_HEADER_SIZE <= wav.len() {
@@ -443,6 +446,25 @@ mod tests {
         NotificationSoundEvent::SessionDepleted,
         NotificationSoundEvent::SessionRestored,
     ];
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn tests_never_start_the_playback_thread() {
+        let mut settings = Settings {
+            sound_enabled: true,
+            ..Settings::default()
+        };
+        for theme in [
+            NotificationSoundTheme::Windows,
+            NotificationSoundTheme::CodexBar,
+        ] {
+            settings.notification_sound_theme = theme;
+            for event in ALL_EVENTS {
+                play_alert(event, &settings).expect("silenced playback succeeds");
+            }
+        }
+        assert!(PLAYBACK_QUEUE.get().is_none());
+    }
 
     #[test]
     fn windows_defaults_preserve_existing_alert_mapping() {

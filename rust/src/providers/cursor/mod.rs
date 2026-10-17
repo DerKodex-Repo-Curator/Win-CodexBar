@@ -16,12 +16,18 @@ use async_trait::async_trait;
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    RateWindow, SourceMode, UsageSnapshot,
 };
 
 pub use api::CursorApi;
 use cost_cooldown::{CostCooldown, credential_fingerprint};
 use token_cost::TokenCostError;
+
+/// Quota usage plus the best-effort token-cost report.
+type CursorFetch = (
+    api::CursorUsageResult,
+    Option<token_cost::CursorTokenCostReport>,
+);
 
 /// Reset-window pace (upstream `CursorProviderDescriptor.pace`, v0.70.0): any
 /// window with a billing-cycle length.
@@ -32,7 +38,6 @@ pub(crate) const PACE_CAPABILITY: crate::core::ProviderPaceCapability =
 
 /// Cursor provider for fetching AI usage limits
 pub struct CursorProvider {
-    metadata: ProviderMetadata,
     api: CursorApi,
     /// Per-credential back-off for forbidden cost requests. The store is
     /// process-wide because the shell builds a fresh provider per refresh.
@@ -44,62 +49,52 @@ pub struct CursorProvider {
 impl CursorProvider {
     pub fn new() -> Self {
         Self {
-            metadata: ProviderMetadata {
-                id: ProviderId::Cursor,
-                display_name: "Cursor",
-                session_label: "Plan",
-                weekly_label: "Cursor",
-                supports_opus: false,
-                // Upstream #2338: Cursor has no account credit balance to advertise.
-                supports_credits: false,
-                default_enabled: true,
-                is_primary: false,
-                dashboard_url: Some("https://cursor.com/dashboard/usage"),
-                status_page_url: None,
-                tertiary_label_key: None,
-            },
             api: CursorApi::new(),
             cost_cooldown: CostCooldown::shared(),
             clock: Arc::new(Instant::now),
         }
     }
 
-    async fn fetch_web_usage(
-        &self,
-        ctx: &FetchContext,
-    ) -> Result<
-        (
-            api::CursorUsageResult,
-            Option<token_cost::CursorTokenCostReport>,
-        ),
-        ProviderError,
-    > {
-        let cookie_header = if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
-            cookie_header.to_string()
-        } else {
-            // Upstream 0.50.0 #2398: Automatic mode prefers the signed-in
-            // Cursor app's read-only local session over browser cookies.
-            // A rejected app session (stale token, account mismatch)
-            // surfaces in the log and falls back to the browser import.
-            if ctx.source_mode == SourceMode::Auto
-                && let Some(app_result) = self.fetch_via_app_session().await
-            {
-                return Ok(app_result);
+    async fn fetch_web_usage(&self, ctx: &FetchContext) -> Result<CursorFetch, ProviderError> {
+        if let Some(cookie_header) = ctx.manual_cookie_header.as_deref() {
+            return self.fetch_usage_and_token_report(cookie_header).await;
+        }
+        // Upstream 0.50.0 #2398: Automatic mode prefers the signed-in
+        // Cursor app's read-only local session over browser cookies.
+        // A rejected app session (stale token, account mismatch)
+        // surfaces in the log and falls back to the browser import.
+        if ctx.source_mode == SourceMode::Auto
+            && let Some(app_result) = self.fetch_via_app_session().await
+        {
+            return Ok(app_result);
+        }
+        let mut sessions =
+            crate::providers::browser_cookie_sessions(ctx, &["cursor.com", "cursor.sh"]);
+        let mut rejected = None;
+        for cookie_header in sessions.by_ref() {
+            match self.fetch_usage_and_token_report(&cookie_header).await {
+                Err(ProviderError::AuthRequired) => rejected = Some(ProviderError::AuthRequired),
+                result => return result,
             }
-            crate::providers::browser_cookie_header(&["cursor.com", "cursor.sh"])?
-        };
+        }
+        Err(rejected.unwrap_or_else(|| sessions.exhaustion_error()))
+    }
 
-        self.fetch_usage_and_token_report(&cookie_header).await
+    async fn fetch_usage_and_token_report(
+        &self,
+        cookie_header: &str,
+    ) -> Result<CursorFetch, ProviderError> {
+        let usage = self
+            .api
+            .fetch_usage_with_cookie_header(cookie_header)
+            .await?;
+        let token_report = self.fetch_token_report_best_effort(cookie_header).await;
+        Ok((usage, token_report))
     }
 
     /// One usage pass with the app's local session; `None` means the app
     /// session was unavailable or rejected (caller falls back to cookies).
-    async fn fetch_via_app_session(
-        &self,
-    ) -> Option<(
-        api::CursorUsageResult,
-        Option<token_cost::CursorTokenCostReport>,
-    )> {
+    async fn fetch_via_app_session(&self) -> Option<CursorFetch> {
         let app_cookie = app_auth::preferred_auto_cookie_header()?;
         let usage = match self.api.fetch_usage_with_cookie_header(&app_cookie).await {
             Ok(usage) => usage,
@@ -113,24 +108,6 @@ impl CursorProvider {
         app_auth::store_validated_app_session(&app_cookie);
         let token_report = self.fetch_token_report_best_effort(&app_cookie).await;
         Some((usage, token_report))
-    }
-
-    async fn fetch_usage_and_token_report(
-        &self,
-        cookie_header: &str,
-    ) -> Result<
-        (
-            api::CursorUsageResult,
-            Option<token_cost::CursorTokenCostReport>,
-        ),
-        ProviderError,
-    > {
-        let usage = self
-            .api
-            .fetch_usage_with_cookie_header(cookie_header)
-            .await?;
-        let token_report = self.fetch_token_report_best_effort(cookie_header).await;
-        Ok((usage, token_report))
     }
 
     /// Best-effort token-cost page; never fail the main usage fetch.
@@ -242,7 +219,6 @@ impl CursorProvider {
             api: CursorApi::with_base_url(base_url),
             cost_cooldown,
             clock,
-            ..Self::new()
         }
     }
 }
@@ -261,10 +237,6 @@ impl Provider for CursorProvider {
 
     fn id(&self) -> ProviderId {
         ProviderId::Cursor
-    }
-
-    fn metadata(&self) -> &ProviderMetadata {
-        &self.metadata
     }
 
     fn retains_last_good_on_transport_failure(&self) -> bool {
@@ -320,10 +292,6 @@ impl Provider for CursorProvider {
 
     fn available_sources(&self) -> Vec<SourceMode> {
         vec![SourceMode::Auto, SourceMode::Web]
-    }
-
-    fn supports_web(&self) -> bool {
-        true
     }
 }
 

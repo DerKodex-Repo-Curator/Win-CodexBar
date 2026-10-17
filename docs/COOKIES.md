@@ -19,6 +19,10 @@ The provider's **Cookie source** setting decides how CodexBar uses cookies durin
 
 Some providers add their own steps to Automatic. The help text under the setting says what each one reads.
 
+### Automatic browser order
+
+With the cookie source set to Automatic, CodexBar reads browsers one at a time, in the shared detection order. It reads a browser only when a provider asks for its next session. These providers try each browser in turn: Typesafe, HelmCode, Hyper, Claude (web), OpenCode Go (web), Zed, Notion and Cursor. For each browser, they check every site domain before moving on. If the site rejects a session (signed out or expired), CodexBar tries the next browser. The first accepted session ends the scan, so later browsers are never opened or decrypted. Providers that haven't moved to this scan yet still use the first browser that has any cookies for the site. Cookie source Off or Manual never reads a browser, and the **Import** button reads only the browser you pick.
+
 ## Paste a cookie by hand
 
 Use this when automatic import fails. For example, the browser uses App-Bound Encryption, the cookie database can't be read, or CodexBar runs in WSL.

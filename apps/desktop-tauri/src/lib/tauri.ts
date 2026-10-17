@@ -41,14 +41,14 @@ import type {
   SessionFocusResult,
   TrayVisibilityStatusDto,
   UsageSpendSummary,
-  SpendContract,
-  CodexLocalProjectUsageSnapshot,
   CodexAccount,
   CodexAccountUsageSnapshot,
   CodexAccountsStateBridge,
   CodexSwitchResult,
   DeepSeekPricingStatus,
   CurrencyRatesSnapshot,
+  OrgRateLimitsSnapshot,
+  ProviderThroughputSnapshot,
 } from "../types/bridge";
 
 export const claudeAccountsList = () => invoke<ClaudeAccount[]>("get_claude_accounts_state");
@@ -91,6 +91,16 @@ export function getProviderStatuses(): Promise<ProviderStatusEntry[]> {
 
 export function reorderProviders(ids: string[]): Promise<ProviderSummary[]> {
   return invoke<ProviderSummary[]>("reorder_providers", { ids });
+}
+
+/** Settings sidebar reorder: `ids` is the full listed order; hidden providers keep their slots. */
+export function reorderVisibleProviders(ids: string[]): Promise<ProviderSummary[]> {
+  return invoke<ProviderSummary[]>("reorder_visible_providers", { ids });
+}
+
+/** Restore the built-in order for the providers the Settings sidebar lists. */
+export function restoreDefaultProviderOrder(): Promise<ProviderSummary[]> {
+  return invoke<ProviderSummary[]>("restore_default_provider_order");
 }
 
 export function getSettingsSnapshot(): Promise<SettingsSnapshot> {
@@ -332,27 +342,6 @@ export function importPreferences(path: string): Promise<SettingsSnapshot> {
   return invoke<SettingsSnapshot>("import_preferences", { path });
 }
 
-export function getSpendContract(
-  providerId: string,
-  options?: { period?: string; includeOpenCodex?: boolean },
-): Promise<SpendContract> {
-  return invoke<SpendContract>("get_spend_contract", {
-    providerId,
-    period: options?.period ?? null,
-    includeOpenCodex: options?.includeOpenCodex ?? null,
-  });
-}
-
-export function getCodexWorkspacesSnapshot(options?: {
-  forceRefresh?: boolean;
-  historyDays?: number;
-}): Promise<CodexLocalProjectUsageSnapshot> {
-  return invoke<CodexLocalProjectUsageSnapshot>("get_codex_workspaces_snapshot", {
-    forceRefresh: options?.forceRefresh ?? null,
-    historyDays: options?.historyDays ?? null,
-  });
-}
-
 // ── Token account bridge ─────────────────────────────────────────────
 
 export function getTokenAccountProviders(): Promise<TokenAccountSupportBridge[]> {
@@ -456,6 +445,16 @@ export function setProviderOptionalDetails(
   enabled: boolean,
 ): Promise<void> {
   return invoke<void>("set_provider_optional_details", { providerId, enabled });
+}
+
+/** On-demand Tokens/min window for OpenAI API Live Usage; 15, 60 or 360 minutes. */
+export function getOpenAiLiveUsage(windowMinutes: 15 | 60 | 360): Promise<ProviderThroughputSnapshot> {
+  return invoke<ProviderThroughputSnapshot>("get_openai_live_usage", { windowMinutes });
+}
+
+/** Organization project caps; the caller skips this when a project scope is saved. */
+export function getOpenAiOrgRateLimits(): Promise<OrgRateLimitsSnapshot> {
+  return invoke<OrgRateLimitsSnapshot>("get_openai_org_rate_limits");
 }
 
 export function setProviderAutoResumeAfterQuotaReset(
@@ -575,10 +574,6 @@ export function quitApp(): Promise<void> {
 
 // ── Codex multi-account (ADR 0003) ───────────────────────────────────
 
-export function codexAccountsList(): Promise<CodexAccount[]> {
-  return invoke<CodexAccount[]>("codex_accounts_list");
-}
-
 export function codexAccountAdd(): Promise<CodexAccount> {
   return invoke<CodexAccount>("codex_account_add");
 }
@@ -599,14 +594,6 @@ export function codexAccountFetch(
   id: string,
 ): Promise<CodexAccountUsageSnapshot> {
   return invoke<CodexAccountUsageSnapshot>("codex_account_fetch", { id });
-}
-
-export function codexAccountSnapshots(): Promise<
-  Record<string, CodexAccountUsageSnapshot>
-> {
-  return invoke<Record<string, CodexAccountUsageSnapshot>>(
-    "codex_account_snapshots",
-  );
 }
 
 export function codexAccountRestartDesktop(

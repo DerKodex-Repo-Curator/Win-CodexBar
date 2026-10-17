@@ -7,6 +7,10 @@ const USAGE_FIXTURE: &str =
     include_str!("../../fixtures/claude/usage-pty-differential-redraw.ansi");
 const STATUS_FIXTURE: &str =
     include_str!("../../fixtures/claude/status-pty-differential-redraw.ansi");
+/// Claude Code 2.1.294 `/usage` panel from a 200-row PTY: session stats and an
+/// insights list push "Current session" well past the former 50-row screen.
+const TALL_PANEL_FIXTURE: &str =
+    include_str!("../../fixtures/claude/usage-pty-2.1.294-tall-panel.ansi");
 
 fn replay(text: &str) -> String {
     render(text, false)
@@ -165,7 +169,7 @@ fn plain_reports_keep_cr_delimiters_and_ignore_osc_contents() {
 
 #[test]
 fn plain_reports_are_not_clipped_or_wrapped_to_the_pty_geometry() {
-    let padding = "report detail\n".repeat(55);
+    let padding = "report detail\n".repeat(ROWS + 5);
     let organization = "Example".repeat(30);
     let text = format!(
         "\u{1b}[32mCurrent session\n3% used\n{padding}Org: {organization}\nEmail: fixture@example.com\u{1b}[0m"
@@ -186,7 +190,7 @@ fn a_cursor_sequence_after_plain_text_switches_to_replay() {
 #[test]
 fn differential_redraw_fixture_keeps_the_scoped_weekly_quota() {
     // Plain escape stripping fuses the redraw fragments, which is the bug.
-    let stripped = crate::providers::claude::strip_ansi(USAGE_FIXTURE);
+    let stripped = strip_ansi(USAGE_FIXTURE);
     assert!(stripped.contains("51%usd"), "{stripped}");
 
     let provider = ClaudeProvider::new();
@@ -209,6 +213,56 @@ fn differential_redraw_fixture_keeps_the_scoped_weekly_quota() {
 }
 
 #[test]
+fn tall_usage_panel_keeps_session_weekly_and_scoped_quotas() {
+    let usage = ClaudeProvider::new()
+        .parse_cli_output(TALL_PANEL_FIXTURE)
+        .unwrap()
+        .usage;
+    assert_eq!(usage.primary.used_percent, 7.0, "93% left");
+    assert_eq!(
+        usage.primary.reset_description.as_deref(),
+        Some("Resets 2:30pm (Europe/Malta)")
+    );
+    let weekly = usage.secondary.expect("weekly window");
+    assert_eq!(weekly.used_percent, 20.0, "80% left");
+    assert_eq!(
+        weekly.reset_description.as_deref(),
+        Some("Resets Oct 14, 10pm (Europe/Malta)")
+    );
+    let fable = usage
+        .extra_rate_windows
+        .iter()
+        .find(|window| window.id == "claude-weekly-scoped-fable")
+        .expect("scoped Fable window");
+    assert_eq!(fable.window.used_percent, 2.0);
+}
+
+#[test]
+fn cursor_moves_past_the_old_height_clamp_to_the_taller_screen() {
+    for movement in ["200C", "200G", "200;200H", "200;200f"] {
+        let frame = format!("top\u{1b}[200B\u{1b}[{movement}X");
+        let output = replay(&frame);
+        let lines: Vec<&str> = output.split('\n').collect();
+        assert_eq!(lines.len(), 200, "movement {movement}");
+        assert_eq!(lines[0], "top", "movement {movement}");
+        assert_eq!(
+            lines[199],
+            format!("{}X", " ".repeat(COLUMNS - 1)),
+            "movement {movement}"
+        );
+    }
+}
+
+#[test]
+fn rows_past_the_old_height_survive_an_erase_above_them() {
+    // "Current session" lands on row 149, beyond the former 50-row screen, and
+    // an erase-to-cursor from row 99 must not touch it.
+    let frame = "\u{1b}[150;1HCurrent session\n7% used\u{1b}[100;1H\u{1b}[1J";
+    let usage = ClaudeProvider::new().parse_cli_output(frame).unwrap().usage;
+    assert_eq!(usage.primary.used_percent, 7.0);
+}
+
+#[test]
 fn rendering_a_rendered_capture_changes_nothing() {
     for fixture in [USAGE_FIXTURE, STATUS_FIXTURE] {
         let once = render(fixture, true);
@@ -226,4 +280,60 @@ fn redrawn_identity_uses_the_final_frame_with_cursor_positioned_spaces() {
     let usage = ClaudeProvider::new().parse_cli_output(&text).unwrap().usage;
     assert_eq!(usage.account_email.as_deref(), Some("fixture@example.com"));
     assert_eq!(usage.login_method.as_deref(), Some("Claude Max Account"));
+}
+
+#[test]
+fn rendered_text_never_carries_an_escape() {
+    let inputs = [
+        USAGE_FIXTURE,
+        STATUS_FIXTURE,
+        "plain \u{1b}[1mLogin method: Claude Max\u{1b}[22m",
+        "osc \u{1b}]0;title\u{7}tail \u{1b}]8;;x\u{1b}\\link",
+        "lone \u{1b}\n\u{1b}Xtrail \u{1b}",
+        "abc\u{1b}[2DZ \u{1b}(B done",
+    ];
+    for input in inputs {
+        for preserve in [true, false] {
+            let rendered = render(input, preserve);
+            assert!(!rendered.contains('\u{1b}'), "{rendered:?}");
+            assert_eq!(strip_ansi(&rendered), rendered);
+        }
+    }
+}
+
+/// Plain escape stripping, the pre-replay behavior these tests compare against.
+fn strip_ansi(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\x1B' {
+            // Skip CSI sequences: ESC[...letter
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                let mut final_char = None;
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next.is_ascii_alphabetic() {
+                        final_char = Some(next);
+                        break;
+                    }
+                }
+                if final_char == Some('C') {
+                    result.push(' ');
+                }
+            // Skip OSC sequences: ESC]...BEL
+            } else if chars.peek() == Some(&']') {
+                for next in chars.by_ref() {
+                    if next == '\x07' || next == '\\' {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
 }

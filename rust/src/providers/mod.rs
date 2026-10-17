@@ -8,6 +8,7 @@
 use futures::{Stream, StreamExt};
 
 pub mod abacus;
+pub mod aerostack;
 pub mod aiand;
 pub mod aixy;
 pub mod alibaba;
@@ -30,6 +31,7 @@ pub mod coderabbit;
 pub mod codex;
 pub mod commandcode;
 pub mod copilot;
+pub mod cosmic;
 pub mod crossmodel;
 pub mod cursor;
 pub mod deepgram;
@@ -39,24 +41,30 @@ pub mod devin;
 pub mod devpass;
 pub mod doubao;
 pub mod elevenlabs;
+pub mod exa;
 pub mod factory;
+pub mod fal;
 pub mod fireworks;
+pub mod flora;
 pub(crate) mod format;
 pub mod gemini;
 pub mod gitkraken;
 pub mod grok;
 pub mod groq;
 pub mod helmcode;
+pub(crate) mod http_util;
 pub mod huggingface;
 pub mod hyper;
 pub mod ibmbob;
 pub mod infini;
 pub mod jetbrains;
+pub(crate) mod json;
 pub mod kilo;
 pub mod kimi;
 pub mod kimik2;
 pub mod kiro;
 pub mod langdock;
+pub mod linkup;
 pub mod litellm;
 pub mod lithosai;
 pub mod llmman;
@@ -79,6 +87,7 @@ pub mod openaiapi;
 pub mod opencode;
 pub mod opencodego;
 pub mod openrouter;
+pub mod parallel;
 pub mod perplexity;
 pub mod pi;
 pub mod poe;
@@ -86,11 +95,17 @@ pub mod qoder;
 pub mod qwencloud;
 pub mod raycast;
 pub mod replicate;
+pub mod sailresearch;
 pub mod sakana;
+pub mod sofya;
 pub mod stepfun;
 pub mod sub2api;
 pub mod synthetic;
 pub mod t3chat;
+pub mod tavily;
+#[cfg(test)]
+pub(crate) mod test_support;
+pub mod tinyapi;
 pub mod typesafe;
 pub mod v0;
 pub mod venice;
@@ -101,6 +116,7 @@ pub mod wayfinder;
 pub mod windsurf;
 pub mod workbuddy;
 pub mod xai;
+pub mod xapi;
 pub mod xkiro;
 pub mod zai;
 pub mod zed;
@@ -109,6 +125,7 @@ pub mod zoommate;
 
 // Re-export provider implementations
 pub use abacus::AbacusProvider;
+pub use aerostack::AerostackProvider;
 pub use aiand::AiAndProvider;
 pub use aixy::AixyProvider;
 pub use alibaba::{AlibabaProvider, AlibabaRegion};
@@ -130,6 +147,7 @@ pub use coderabbit::CodeRabbitProvider;
 pub use codex::CodexProvider;
 pub use commandcode::CommandCodeProvider;
 pub use copilot::CopilotProvider;
+pub use cosmic::CosmicProvider;
 pub use crossmodel::CrossModelProvider;
 pub use cursor::CursorProvider;
 pub use deepgram::DeepgramProvider;
@@ -139,8 +157,11 @@ pub use devin::DevinProvider;
 pub use devpass::DevPassProvider;
 pub use doubao::DoubaoProvider;
 pub use elevenlabs::ElevenLabsProvider;
+pub use exa::ExaProvider;
 pub use factory::FactoryProvider;
+pub use fal::FalProvider;
 pub use fireworks::FireworksProvider;
+pub use flora::FloraProvider;
 pub use gemini::GeminiProvider;
 pub use gitkraken::GitKrakenProvider;
 pub use grok::GrokProvider;
@@ -156,6 +177,7 @@ pub use kimi::{KimiProvider, KimiRegion};
 pub use kimik2::KimiK2Provider;
 pub use kiro::KiroProvider;
 pub use langdock::LangdockProvider;
+pub use linkup::LinkupProvider;
 pub use litellm::LiteLLMProvider;
 pub use lithosai::LithosAIProvider;
 pub use llmman::LLMManProvider;
@@ -177,6 +199,7 @@ pub use openaiapi::OpenAIApiProvider;
 pub use opencode::OpenCodeProvider;
 pub use opencodego::OpenCodeGoProvider;
 pub use openrouter::OpenRouterProvider;
+pub use parallel::ParallelProvider;
 pub use perplexity::PerplexityProvider;
 pub use pi::PiProvider;
 pub use poe::PoeProvider;
@@ -184,11 +207,15 @@ pub use qoder::QoderProvider;
 pub use qwencloud::QwenCloudProvider;
 pub use raycast::RaycastProvider;
 pub use replicate::ReplicateProvider;
+pub use sailresearch::SailResearchProvider;
 pub use sakana::SakanaProvider;
+pub use sofya::SofyaProvider;
 pub use stepfun::StepFunProvider;
 pub use sub2api::Sub2ApiProvider;
 pub use synthetic::SyntheticProvider;
 pub use t3chat::T3ChatProvider;
+pub use tavily::TavilyProvider;
+pub use tinyapi::TinyApiProvider;
 pub use typesafe::TypeSafeProvider;
 pub use v0::V0Provider;
 pub use venice::VeniceProvider;
@@ -199,6 +226,7 @@ pub use wayfinder::WayfinderProvider;
 pub use windsurf::WindsurfProvider;
 pub use workbuddy::WorkBuddyProvider;
 pub use xai::XaiProvider;
+pub use xapi::XapiProvider;
 pub use xkiro::XKiroProvider;
 pub use zai::ZaiProvider;
 pub use zed::ZedProvider;
@@ -272,6 +300,77 @@ pub(crate) fn browser_cookie_header(
         .map_err(map_browser_cookie_error)
 }
 
+/// Browser `Cookie` headers for `domains`, read one browser at a time.
+///
+/// A provider tries each header and asks for the next one only after the site
+/// rejects the previous session, so a browser holding stale cookies no longer
+/// hides a later browser's valid login, and browsers after an accepted session
+/// are never read. Yields nothing when the cookie source forbids browser
+/// import (`FetchContext::manual_cookie_missing`: an empty Manual source or
+/// Off). Callers handle a pasted `manual_cookie_header` themselves first.
+pub(crate) fn browser_cookie_sessions(
+    ctx: &crate::core::FetchContext,
+    domains: &[&str],
+) -> BrowserCookieSessions {
+    browser_cookie_sessions_from(
+        crate::browser::session_scan::SystemCookieStore,
+        ctx,
+        domains,
+    )
+}
+
+/// [`browser_cookie_sessions`] for a path that has no `FetchContext` because
+/// its caller already decided that browser import is allowed.
+pub(crate) fn unscoped_browser_cookie_sessions(domains: &[&str]) -> BrowserCookieSessions {
+    BrowserCookieSessions {
+        scan: Some(crate::browser::session_scan::BrowserCookieScan::new(domains).browser_major()),
+    }
+}
+
+pub(crate) fn browser_cookie_sessions_from<S: crate::browser::session_scan::BrowserCookieStore>(
+    store: S,
+    ctx: &crate::core::FetchContext,
+    domains: &[&str],
+) -> BrowserCookieSessions<S> {
+    BrowserCookieSessions {
+        scan: (!ctx.manual_cookie_missing).then(|| {
+            crate::browser::session_scan::BrowserCookieScan::with_store(store, domains)
+                .browser_major()
+        }),
+    }
+}
+
+pub(crate) struct BrowserCookieSessions<
+    S: crate::browser::session_scan::BrowserCookieStore =
+        crate::browser::session_scan::SystemCookieStore,
+> {
+    scan: Option<crate::browser::session_scan::BrowserCookieScan<S>>,
+}
+
+impl<S: crate::browser::session_scan::BrowserCookieStore> BrowserCookieSessions<S> {
+    /// Why no (further) browser session is available: `NoCookies` when no
+    /// browser holds cookies or import is disabled, otherwise a read error
+    /// such as App-Bound Encryption.
+    pub(crate) fn exhaustion_error(&self) -> crate::core::ProviderError {
+        self.scan
+            .as_ref()
+            .map_or(crate::core::ProviderError::NoCookies, |scan| {
+                map_browser_cookie_error(scan.exhaustion_error())
+            })
+    }
+}
+
+impl<S: crate::browser::session_scan::BrowserCookieStore> Iterator for BrowserCookieSessions<S> {
+    type Item = String;
+
+    fn next(&mut self) -> Option<String> {
+        self.scan
+            .as_mut()?
+            .next()
+            .map(|candidate| candidate.header())
+    }
+}
+
 pub(crate) fn browser_cookie_headers_for_domain(
     domain: &str,
 ) -> Result<Vec<(String, String)>, crate::core::ProviderError> {
@@ -319,14 +418,33 @@ pub(crate) fn cookie_values<'a>(cookie_header: &'a str, name: &str) -> Vec<&'a s
 /// Empty values and control characters are rejected before the value reaches an
 /// HTTP client.
 pub(crate) fn normalize_cookie_header(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    let value = trimmed
-        .get(.."cookie:".len())
-        .filter(|prefix| prefix.eq_ignore_ascii_case("cookie:"))
-        .map_or(trimmed, |_| &trimmed["cookie:".len()..])
-        .trim();
-
+    let value = strip_cookie_prefix(raw.trim());
     (!value.is_empty() && !value.chars().any(char::is_control)).then(|| value.to_string())
+}
+
+/// Drops a leading, case-insensitive `Cookie:` label and the whitespace after
+/// it. Input without the label is returned unchanged.
+pub(crate) fn strip_cookie_prefix(header: &str) -> &str {
+    match header.get(.."cookie:".len()) {
+        Some(prefix) if prefix.eq_ignore_ascii_case("cookie:") => header["cookie:".len()..].trim(),
+        _ => header,
+    }
+}
+
+/// Rebuilds a cookie header from its `name=value` pairs, trimming both sides
+/// and dropping chunks with no `=`, an empty name or an empty value. `None`
+/// when no pair remains.
+pub(crate) fn normalize_cookie_pairs(header: &str) -> Option<String> {
+    let pairs = header
+        .split(';')
+        .filter_map(|chunk| {
+            let (name, value) = chunk.trim().split_once('=')?;
+            let name = name.trim();
+            let value = value.trim();
+            (!name.is_empty() && !value.is_empty()).then(|| format!("{name}={value}"))
+        })
+        .collect::<Vec<_>>();
+    (!pairs.is_empty()).then(|| pairs.join("; "))
 }
 
 pub(crate) fn browser_cookies_for_domain(
@@ -534,8 +652,48 @@ pub(crate) fn extract_renewal(text: &str) -> Option<chrono::DateTime<chrono::Utc
 
 #[cfg(test)]
 mod tests {
-    use super::{BoundedBodyError, normalize_cookie_header, read_bounded_stream};
+    use super::{
+        BoundedBodyError, browser_cookie_sessions_from, normalize_cookie_header,
+        normalize_cookie_pairs, read_bounded_stream, strip_cookie_prefix,
+    };
+    use crate::browser::detection::BrowserType;
+    use crate::browser::session_scan::test_support::FakeCookieStore;
+    use crate::core::{FetchContext, ProviderError};
     use futures::stream;
+
+    #[test]
+    fn browser_sessions_never_read_a_browser_when_import_is_disabled() {
+        let store =
+            FakeCookieStore::default().cookies(BrowserType::Chrome, "a.test", &[("s", "1")]);
+        let ctx = FetchContext {
+            manual_cookie_missing: true,
+            ..FetchContext::default()
+        };
+        let mut sessions = browser_cookie_sessions_from(&store, &ctx, &["a.test"]);
+        assert_eq!(sessions.next(), None);
+        assert!(matches!(
+            sessions.exhaustion_error(),
+            ProviderError::NoCookies
+        ));
+        assert!(store.reads().is_empty());
+    }
+
+    #[test]
+    fn browser_sessions_yield_headers_lazily_in_browser_order() {
+        let store = FakeCookieStore::default()
+            .cookies(BrowserType::Edge, "a.test", &[("s", "stale")])
+            .cookies(BrowserType::Firefox, "a.test", &[("s", "valid")]);
+        let ctx = FetchContext::default();
+        let mut sessions = browser_cookie_sessions_from(&store, &ctx, &["a.test"]);
+        assert_eq!(sessions.next().as_deref(), Some("s=stale"));
+        assert_eq!(store.reads().len(), 1);
+        assert_eq!(sessions.next().as_deref(), Some("s=valid"));
+        assert_eq!(sessions.next(), None);
+        assert!(matches!(
+            sessions.exhaustion_error(),
+            ProviderError::NoCookies
+        ));
+    }
 
     #[tokio::test]
     async fn bounded_stream_rejects_oversized_body_without_content_length() {
@@ -602,5 +760,22 @@ mod tests {
             normalize_cookie_header("session=abc\r\nInjected: true"),
             None
         );
+    }
+
+    #[test]
+    fn strip_cookie_prefix_drops_only_a_leading_label() {
+        assert_eq!(strip_cookie_prefix("COOKIE:  a=1"), "a=1");
+        assert_eq!(strip_cookie_prefix("a=1; Cookie: b=2"), "a=1; Cookie: b=2");
+        assert_eq!(strip_cookie_prefix(" a=1 "), " a=1 ");
+        assert_eq!(strip_cookie_prefix("é"), "é");
+    }
+
+    #[test]
+    fn normalize_cookie_pairs_keeps_complete_pairs() {
+        assert_eq!(
+            normalize_cookie_pairs(" a = 1 ;b=;=c; junk ; d=2"),
+            Some("a=1; d=2".to_string())
+        );
+        assert_eq!(normalize_cookie_pairs("junk; b="), None);
     }
 }

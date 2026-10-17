@@ -1,4 +1,5 @@
 use super::*;
+use crate::providers::test_support::{mock_response_expect, mock_status};
 use mockito::{Matcher, Server, ServerGuard};
 
 const COSTS_PATH: &str = "/v1/organization/costs";
@@ -23,6 +24,7 @@ fn provider(server: &ServerGuard) -> OpenAIApiProvider {
         credit_grants: format!("{}{GRANTS_PATH}", server.url()),
         costs: format!("{}{COSTS_PATH}", server.url()),
         completions: format!("{}{COMPLETIONS_PATH}", server.url()),
+        projects: format!("{}/v1/organization/projects", server.url()),
     };
     provider.retry = RetryPolicy {
         base_delay: Duration::ZERO,
@@ -131,8 +133,9 @@ fn openai_admin_usage_accepts_numeric_string_cost_amounts() {
 }
 
 #[test]
-fn openai_admin_tokens_sum_text_and_audio_without_cached() {
-    // Upstream `tokens = input + input_audio + output + output_audio`.
+fn openai_admin_tokens_do_not_recount_audio_or_cached() {
+    // Upstream `tokens = input + output`: `input_tokens`/`output_tokens` already include the
+    // audio breakdowns, and cached input is a subset of input.
     let completions = [CompletionsUsageBucket {
         start_time: 1_700_000_000,
         end_time: 1_700_086_400,
@@ -158,9 +161,9 @@ fn openai_admin_tokens_sum_text_and_audio_without_cached() {
         ],
     }];
     let result = result_from_admin_usage(&[], &completions, fixed_now(0), None).unwrap();
-    assert_eq!(extra_window(&result, "tokens"), "2050 tokens");
+    assert_eq!(extra_window(&result, "tokens"), "2000 tokens");
     assert_eq!(extra_window(&result, "requests"), "10 requests");
-    assert_eq!(extra_window(&result, "model-0"), "1550 tokens");
+    assert_eq!(extra_window(&result, "model-0"), "1500 tokens");
     assert_eq!(extra_window(&result, "model-1"), "500 tokens");
 }
 
@@ -206,8 +209,11 @@ fn openai_admin_usage_sums_costs_and_ranks_line_items() {
 
 #[test]
 fn openai_admin_usage_rejects_nonfinite_cost_amounts() {
-    assert_eq!(number_value(&serde_json::json!("NaN")), None);
-    assert_eq!(number_value(&serde_json::json!("Infinity")), None);
+    assert_eq!(json::lenient_finite_f64(&serde_json::json!("NaN")), None);
+    assert_eq!(
+        json::lenient_finite_f64(&serde_json::json!("Infinity")),
+        None
+    );
     for value in ["NaN", "Infinity", "-Infinity", "1e309", "-1e309"] {
         let costs = [cost_bucket(serde_json::json!(value))];
         let error = result_from_admin_usage(&costs, &[], fixed_now(0), None)
@@ -734,12 +740,7 @@ async fn mock_admin_status(server: &mut ServerGuard, status: usize) -> mockito::
 async fn openai_unscoped_key_falls_back_to_balance_on_admin_auth_failure() {
     let mut server = Server::new_async().await;
     let _costs = mock_admin_status(&mut server, 403).await;
-    let grants = server
-        .mock("GET", GRANTS_PATH)
-        .with_body(GRANTS_BODY)
-        .expect(1)
-        .create_async()
-        .await;
+    let grants = mock_response_expect(&mut server, "GET", GRANTS_PATH, 200, GRANTS_BODY, 1).await;
 
     let result = provider(&server)
         .fetch_admin_or_balance(&admin_credential(), None, fixed_now(3_600))
@@ -760,12 +761,7 @@ async fn openai_unscoped_key_falls_back_to_balance_on_admin_auth_failure() {
 async fn openai_unscoped_key_falls_back_to_balance_during_admin_outage() {
     let mut server = Server::new_async().await;
     let costs = mock_admin_status(&mut server, 500).await.expect(2);
-    let grants = server
-        .mock("GET", GRANTS_PATH)
-        .with_body(GRANTS_BODY)
-        .expect(1)
-        .create_async()
-        .await;
+    let grants = mock_response_expect(&mut server, "GET", GRANTS_PATH, 200, GRANTS_BODY, 1).await;
 
     let result = provider(&server)
         .fetch_admin_or_balance(&admin_credential(), None, fixed_now(3_600))
@@ -781,12 +777,7 @@ async fn openai_unscoped_key_falls_back_to_balance_during_admin_outage() {
 async fn openai_project_scoped_admin_key_never_uses_the_unfiltered_balance() {
     let mut server = Server::new_async().await;
     let _costs = mock_admin_status(&mut server, 403).await;
-    let grants = server
-        .mock("GET", GRANTS_PATH)
-        .with_body(GRANTS_BODY)
-        .expect(0)
-        .create_async()
-        .await;
+    let grants = mock_response_expect(&mut server, "GET", GRANTS_PATH, 200, GRANTS_BODY, 0).await;
 
     let error = provider(&server)
         .fetch_admin_or_balance(&admin_credential(), Some("proj_abc"), fixed_now(3_600))
@@ -801,12 +792,7 @@ async fn openai_project_scoped_admin_key_never_uses_the_unfiltered_balance() {
 async fn openai_project_scoped_plain_key_keeps_the_balance_fallback() {
     let mut server = Server::new_async().await;
     let _costs = mock_admin_status(&mut server, 403).await;
-    let grants = server
-        .mock("GET", GRANTS_PATH)
-        .with_body(GRANTS_BODY)
-        .expect(1)
-        .create_async()
-        .await;
+    let grants = mock_response_expect(&mut server, "GET", GRANTS_PATH, 200, GRANTS_BODY, 1).await;
     let credential = ApiCredential {
         key: "sk-plain".to_string(),
         is_admin: false,
@@ -825,11 +811,7 @@ async fn openai_project_scoped_plain_key_keeps_the_balance_fallback() {
 async fn openai_balance_failure_keeps_the_admin_outage_error() {
     let mut server = Server::new_async().await;
     let _costs = mock_admin_status(&mut server, 500).await;
-    let _grants = server
-        .mock("GET", GRANTS_PATH)
-        .with_status(404)
-        .create_async()
-        .await;
+    let _grants = mock_status(&mut server, "GET", GRANTS_PATH, 404).await;
 
     let error = provider(&server)
         .fetch_admin_or_balance(&admin_credential(), None, fixed_now(3_600))

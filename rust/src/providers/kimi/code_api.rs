@@ -2,7 +2,8 @@
 //! upstream 0.48.0 enrichment (#2622): Code API / CLI usage snapshots are
 //! merged with the monthly membership pool + Code 7-day limit when a
 //! `kimi.com` web token is available (manual cookie → Kimi Desktop session →
-//! browser import; gated by Cookie Source Off).
+//! browser import; gated by Cookie Source Off). A Desktop session is checked
+//! again before each enrichment request (upstream #4416).
 
 use reqwest::Url;
 use std::path::{Path, PathBuf};
@@ -13,6 +14,7 @@ use super::{
     kimi_window_minutes,
 };
 use super::{ratio_pool, web};
+use crate::providers::json;
 
 const KIMI_CODE_API_KEY_ENV: &str = "KIMI_CODE_API_KEY";
 const KIMI_CODE_BASE_URL_ENV: &str = "KIMI_CODE_BASE_URL";
@@ -55,10 +57,7 @@ pub(crate) async fn fetch_via_code_api(
     let api_key = code_api_key(api_key_override.or(ctx.api_key.as_deref()))?;
     let base_url = code_api_base_url(region)?;
     let endpoint = code_api_usage_endpoint(&base_url)?;
-    let client = crate::core::credentialed_http_client_builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| ProviderError::Other(e.to_string()))?;
+    let client = web::client()?;
 
     let mut request = client
         .get(endpoint)
@@ -85,16 +84,19 @@ pub(crate) async fn fetch_via_code_api(
     snapshot.login_method = Some(plan_name.unwrap_or_else(|| login_method.to_string()));
 
     // Upstream #2622: enrich Code API + CLI usage with the monthly membership
-    // pool from a signed-in Kimi Desktop (or browser/manual) session.
-    for web_token in web::web_auth_tokens(ctx.manual_cookie_header.as_deref(), region) {
-        match web::fetch_subscription_for_enrichment_result(&client, &web_token, region).await {
+    // pool from a signed-in Kimi Desktop (or browser/manual) session. A
+    // Desktop session that changed before dispatch ends enrichment but keeps
+    // the Code quota snapshot (upstream #4416).
+    for web_credential in web::web_auth_credentials(ctx.manual_cookie_header.as_deref(), region) {
+        match web::fetch_subscription_for_enrichment_result(&client, &web_credential, region).await
+        {
             Ok(subscription) => {
                 if let Some(subscription) = subscription {
                     snapshot = super::apply_subscription_windows(snapshot, &subscription);
                 }
                 if !has_plan_name
                     && let Some(plan) =
-                        web::fetch_subscription_plan(&client, &web_token, region).await
+                        web::fetch_subscription_plan(&client, &web_credential, region).await
                 {
                     snapshot.login_method = Some(plan);
                 }
@@ -126,9 +128,11 @@ fn code_api_status_error(status: reqwest::StatusCode) -> ProviderError {
 
 /// Upstream `KimiUsageSnapshot.toUsageSnapshot` (0.60.5 #3694): weekly is the
 /// primary lane and the 5-hour rate limit the secondary, as on the web path.
-/// Each ratio pool takes precedence over the legacy counters of its lane; an
-/// absent or invalid pool falls back to those counters. The monthly pool is
-/// the `Total usage` extra lane. Missing lanes are not invented: an absent
+/// Each ratio pool takes precedence over the legacy counters of its lane,
+/// unless matching counters for the same window and reset report more usage
+/// (upstream #4311; see `ratio_pool`). An absent or invalid pool falls back to
+/// those counters. The monthly pool is the `Total usage` extra lane. Missing
+/// lanes are not invented: an absent
 /// weekly quota stays an informational primary, and a response without any
 /// supported window is a parse error.
 pub(super) fn snapshot_from_code_api_response(
@@ -142,7 +146,6 @@ pub(super) fn snapshot_from_code_api_response(
         .and_then(|pools| pools.weekly.as_ref())
         .and_then(|pool| {
             ratio_pool::resolved_ratio_window(
-                &response,
                 pool,
                 response.usage.as_ref(),
                 WEEKLY_WINDOW_MINUTES,
@@ -159,7 +162,6 @@ pub(super) fn snapshot_from_code_api_response(
         .and_then(|pools| pools.session.as_ref())
         .and_then(|pool| {
             ratio_pool::resolved_ratio_window(
-                &response,
                 pool,
                 legacy_limit.map(|limit| &limit.detail),
                 SESSION_WINDOW_MINUTES,
@@ -332,7 +334,7 @@ fn read_kimi_code_device_id(home: &Path) -> Option<String> {
 }
 
 fn is_kimi_code_credential_fresh(expires_at: Option<serde_json::Value>, now_unix: f64) -> bool {
-    let Some(expires) = super::value_as_f64(expires_at.as_ref()) else {
+    let Some(expires) = json::lenient_f64(expires_at.as_ref()) else {
         return false;
     };
     if !expires.is_finite() {

@@ -54,7 +54,7 @@ Win-CodexBar is the Windows port of CodexBar: a tray app that shows AI-provider 
 | `apps/desktop-tauri/src/lib/tauri.ts` | Frontend invoke bridge |
 | `apps/desktop-tauri/src/types/bridge.ts` | DTOs and `SettingsTabId` |
 | `rust/src/core/provider_factory.rs` | The only provider factory, and `pace_capability` |
-| `rust/src/core/provider.rs` | `ProviderId` and the `Provider` trait |
+| `rust/src/core/provider/` | `ProviderId` (`id.rs`), the spec table (`spec.rs`) and the `Provider` trait (`traits.rs`) |
 | `apps/desktop-tauri/src-tauri/src/commands/providers.rs` | Refresh engine |
 | `apps/desktop-tauri/src-tauri/src/tray_bridge.rs` | Tray icon and menu |
 | `apps/desktop-tauri/src-tauri/src/floatbar/window.rs` | Float bar window builder |
@@ -160,7 +160,7 @@ These need the user's confirmation, because they are hard to undo or affect shar
 
 ### UI validation with CUA ([trycua/cua](https://github.com/trycua/cua))
 
-Unit tests and `local-check` don't prove tray, Settings, float bar, theme or WebView2 behavior. After any UI, tray, Settings, float-bar or visual change, retest on a real Windows desktop build. Vitest, jsdom and `cargo test` alone are never enough for the tray icon, DWM, the WebView2 theme, float bar z-order or Settings chrome.
+Unit tests and `local-check` don't prove tray, Settings, float bar, theme or WebView2 behavior. Changes that only touch webview content can use the [browser proof](#browser-proof-pnpm-proofcheck) instead. For every other UI, tray, Settings, float-bar or visual change, retest on a real Windows desktop build. Vitest, jsdom and `cargo test` alone are never enough for the tray icon, DWM, the WebView2 theme, float bar z-order or Settings chrome.
 
 1. **Rebuild** a desktop binary that includes the change: `pnpm --dir apps/desktop-tauri run tauri:build:debug` or `.\scripts\dev.ps1`. Proof from an exe built before the change (a **stale exe**) proves nothing.
 2. **Close** any running CodexBar. The single-instance plugin can hand a new launch to the old process.
@@ -173,12 +173,33 @@ Unit tests and `local-check` don't prove tray, Settings, float bar, theme or Web
 
 [docs/WINDOWS_PROOF.md](docs/WINDOWS_PROOF.md) has the cua-driver install command (driver usually at `%LOCALAPPDATA%\Programs\Cua\cua-driver\bin\cua-driver.exe`), the CDP target URLs, the cua-driver session rules and the post-install checklist.
 
+### Browser proof (`pnpm proof:check`)
+
+The React surfaces also run in a plain browser over mocked IPC (`apps/desktop-tauri/proof.html`, fixtures in `src/proof/`). `pnpm proof:check`, run from `apps/desktop-tauri`, drives Chrome, Edge or Chromium over CDP through `scripts/proof-scenarios.json`. It prints PASS or FAIL for each scenario and saves screenshots. It runs on any OS, so subagents and CI can use it without a Windows desktop. Details: `docs/WINDOWS_PROOF.md` section 5.
+
+- **Enough on its own** when the change only touches webview content: layout, copy and i18n, rendered data and states, settings pages and controls, provider siloing. Add or extend a scenario that covers the change, run `pnpm proof:check`, and attach the PASS output and screenshots, labelled "Chromium, mocked IPC".
+- **Still needs the CUA loop** when the change touches the tray icon or tray menu, window chrome, frame, size or position, the DWM or WebView2 theme under `auto`, float bar always-on-top or window behavior, blur-dismiss, or real provider data, cookies or credential storage. When unsure, run both.
+- **Mocks follow the bridge.** A new `invoke("...")` command needs a fixture handler or an `INERT_ACTIONS` entry in `src/proof/router.ts`. `src/proof/coverage.test.ts` fails otherwise. Fixtures stay synthetic: `example.com` identities, and no real settings, cookies, tokens or provider responses.
+- **Headed runs** (`pnpm proof:check -- --headed`) use the runner's own isolated browser profile. Never attach automation to your own browser profile.
+
+### Off-machine proof (Cloudflare)
+
+Every Cloudflare runtime (Workers, Containers, Sandbox, Browser Rendering) runs Linux. None of them can run the Tauri shell, WebView2, the tray or DWM. Off-machine evidence supplements the CUA loop. It never replaces CUA for tray, theme, float-bar or window-chrome changes.
+
+- **What it can prove:** React surface layout, copy and i18n, rendered data, provider siloing, the DOM and accessibility tree, and console errors (Browser Rendering's headless Chromium against a static frontend build). It can also prove tray icon pixels from `codexbar::tray::{render_bar_icon_rgba, render_percent_icon_rgba}`, exported without a desktop.
+- **Frontend adapter:** the [browser proof](#browser-proof-pnpm-proofcheck) build. `pnpm build:proof` writes a static `dist-proof/`. `pnpm proof:check -- --url <base>` or `--cdp <ws-url>` runs the same scenarios against a hosted copy or a remote browser. The mock stays out of the production bundle (`src/proof/isolation.test.ts`).
+- **Fixtures only.** Never upload real settings, cookies, tokens, account emails or provider responses.
+- **Labeling.** Mark these screenshots in PRs as "Chromium (Linux), mocked IPC". Fonts, scrollbars and DPI differ from WebView2.
+- **Windows-only checks away from the dev machine.** Use a Windows host (a CircleCI `windows` orb or a disposable Windows VM) and run the same rebuild, proof mode, then CDP and CUA loop. Cloudflare may front that host with a `cloudflared` tunnel behind Cloudflare Access and store its artifacts, but the proof itself must come from Windows.
+- **Account safety.** The Cloudflare account is shared with unrelated projects, and no Win-CodexBar resources exist on it yet. Read-only `list` and `get` calls are fine. Don't reuse, redeploy or bind into another project's Workers, Browser Rendering bindings or containers. Creating, deploying or editing any Cloudflare resource needs explicit approval from the user in the current turn. Never delete Cloudflare resources. Keep Cloudflare tokens out of the repo, logs and PR text.
+
 ## Commits and PRs
 
 - Short imperative commit messages, for example `Fix Claude CLI parser` or `Improve cookie import errors`. One change per commit.
 - A PR includes: a summary of behavior changes, the commands you ran (`cargo test`, `pnpm test`, `.\scripts\local-check.ps1` ...), Windows screenshots or GIFs for UI changes, and the linked issue or reference.
 - `ci/circleci: pr-check` is the primary Windows gate; `.github/workflows/pr-check.yml` is the manual Blacksmith backup. Porting micro PRs that target `port/upstream-*` use focused local evidence and skip automatic hosted Windows CI on purpose. Same-repository PRs to `main` always get the hosted gate; fork PRs never do (see Fork PRs and reviews).
-- UI, tray, Settings, float-bar and visual PRs need hybrid proof by default: CDP for actions and state, CUA for real pixels and native checks, after a fresh local rebuild. See [UI validation with CUA](#ui-validation-with-cua-trycuacua).
+- Webview-only UI PRs may attach `pnpm proof:check` output and screenshots instead (see [Browser proof](#browser-proof-pnpm-proofcheck)).
+- Other UI, tray, Settings, float-bar and visual PRs need hybrid proof by default: CDP for actions and state, CUA for real pixels and native checks, after a fresh local rebuild. See [UI validation with CUA](#ui-validation-with-cua-trycuacua).
 - Before a non-trivial merge, run the thermo-nuclear structure review when the project process requires it.
 
 ## Release and Winget
@@ -203,3 +224,4 @@ Unit tests and `local-check` don't prove tray, Settings, float bar, theme or Web
 | Proof mode, seeding, CDP, cua-driver | `docs/WINDOWS_PROOF.md` |
 | CI roles and budget terms | `CONTEXT.md`, `.github/CI.md`, `docs/adr/` |
 | Porting from upstream | `docs/PORTING.md` |
+

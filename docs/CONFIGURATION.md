@@ -58,6 +58,12 @@ The app keeps its files in `%APPDATA%\CodexBar` (`dirs::config_dir()` plus `Code
 
 A CLI process can use another settings file through `CODEXBAR_CONFIG`. The API key, manual cookie and token account files then sit beside that file. The desktop app ignores the variable. See [CLI.md](./CLI.md#separate-config-file-codexbar_config).
 
+## Windows update helper
+
+Installing an update runs a background Windows PowerShell inline command. It waits for CodexBar to exit, runs the verified installer, and reopens the desktop app after a successful install. The helper doesn't change the PowerShell execution policy you inherit, so it doesn't need unsigned script files to be allowed.
+
+Removing that policy override is a hardening step. It doesn't prove that a Defender detection is a false positive or that a release build is safe. To check a detected file, compare its build provenance and hashes. For malware or false-positive analysis, use [Microsoft's file submission portal](https://www.microsoft.com/en-us/wdsi/filesubmission).
+
 ## Settings window
 
 The Settings window has a sidebar. The top part lists the panes in this order: General, Usage & Spend, Notifications, Menu Bar, Menu, Advanced, Hooks and About. Below them is a **Providers** section with one row per provider and a count of how many are on.

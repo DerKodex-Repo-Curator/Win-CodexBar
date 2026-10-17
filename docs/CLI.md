@@ -103,6 +103,8 @@ codexbar cost
 codexbar cost -p codex -f json --pretty
 codexbar cost -p codex --remote user@mac-host
 codexbar cost -p codex --format json --summary-only --provider-native-only --days 30
+codexbar cost -p codex --group-by project
+codexbar cost -p codex --identified-only --format json --days 30 --remote user@build-host
 codexbar cost --period month-to-date --json
 codexbar cost --period all --json
 codexbar cost --days 7 --json
@@ -153,9 +155,20 @@ JSON output adds:
 
 ### Remote and summary reports
 
-`--remote <host>` adds one separate native Codex report, fetched over non-interactive SSH. Local and remote histories are never merged. `--summary-only` prints the versioned, path-free JSON contract that the remote comparison uses. It accepts only `--provider codex --format json`. Both modes reject session grouping and other providers.
+`--remote <host>` adds one separate native Codex report, fetched over non-interactive SSH. Local and remote histories are never merged. `--summary-only` prints the versioned, path-free JSON contract that the remote comparison uses. It accepts only `--provider codex --format json`. Both modes reject project or session grouping and other providers.
 
 `--provider-native-only` leaves out pi/OMP agent session mirrors. This Windows build has no such mirrors, so the flag is accepted but changes nothing here.
+
+`--group-by project` lists Codex local projects from the workspace index. It prints text only; other providers print a not-available line, and JSON output is unchanged. When the local cost scan has incomplete coverage, the report shows the same `Coverage: partial (history catch-up in progress)` notice as the default Codex text report, even when no project rows are available. Hide personal information replaces project names and drops paths.
+
+### Identified-request subtotal (experimental)
+
+`codexbar cost --provider codex --identified-only --format json --days 30` exports a versioned native request ledger (`schemaVersion` 1) for one inclusive UTC window. `--identified-end <Unix milliseconds>` sets the end (default: now). The start is UTC midnight `days - 1` days earlier, and saved periods and time zones don't change it. Add `--remote <ssh-host>` to get per-source `reports` plus an **identified-request subtotal** for this machine and that host. The remote host needs a CLI that supports `--identified-only`.
+
+- Only owned native `token_usage_record` events with thread and response IDs count. Legacy `token_count` usage without a matching identified request, and unidentified usage, is excluded and counted in `excludedCount`. The subtotal is not complete account usage. Foreign-provider routes (for example `deepseek/...`) are not Codex usage.
+- Identical copies count once. Contradictory copies of one identity are excluded for the whole merge, even after a later matching copy. Identities are length-framed SHA-256 hashes, so rows carry timestamps and token categories without conversation text, model names, paths or raw session IDs.
+- Combined prices are unavailable (`costUSD: null`), so no dollar estimate is made. Exports are limited to 50,000 records and conflict IDs and 32 MiB of remote output. A source that goes over a limit is rejected, not truncated. An unavailable source keeps the data from the sources that worked, marks the result `partial` and exits nonzero. Readable empty history is valid. Malformed lines, dropped usage lines or files that change during the scan mark the data partial.
+- It requires `--provider codex` and JSON, and `--days` from 1 to 365 (30 by default). It can't be combined with `--summary-only`, `--period` or `--group-by`. The separate-host `--remote` summary without `--identified-only` is unchanged.
 
 ### Scan timing
 
