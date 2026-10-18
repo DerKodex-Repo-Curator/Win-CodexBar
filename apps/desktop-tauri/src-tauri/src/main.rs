@@ -155,6 +155,7 @@ fn main() {
 
     let mut initial_state = AppState::new();
     initial_state.proof_config = proof_config;
+    initial_state.claude_account_usage = commands::load_account_usage_cache();
     // Validate the complete proof seed before installing any snapshots, so an
     // invalid multi-provider fixture cannot leave a partial cache behind.
     if let Some(snapshots) = proof_harness::seed_usage_snapshots_from_env(

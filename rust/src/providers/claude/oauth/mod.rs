@@ -385,7 +385,9 @@ impl ClaudeOAuthFetcher {
         {
             return Err(error);
         }
-        self.fetch_with_credentials(credentials).await
+        let gate_key =
+            usage_gate::account_key(saved_account_id.as_deref(), &credentials.access_token);
+        self.fetch_with_credentials(credentials, &gate_key).await
     }
 
     /// Fetch a saved account directly; never switch Claude Code to obtain usage.
@@ -454,7 +456,11 @@ impl ClaudeOAuthFetcher {
         {
             return Err(account_refresh_error(error));
         }
-        let result = self.fetch_with_credentials(credentials.clone()).await;
+        // Keyed by the account, so its own 429 block survives a token renewal.
+        let gate_key = usage_gate::account_key(Some(id), &credentials.access_token);
+        let result = self
+            .fetch_with_credentials(credentials.clone(), &gate_key)
+            .await;
         // Unknown expiry metadata and early server expiry still get one renewal.
         if matches!(&result, Err(ProviderError::OAuthExpired(_)))
             && credentials.refresh_token.is_some()
@@ -468,7 +474,7 @@ impl ClaudeOAuthFetcher {
             if let Some(error) = outcome {
                 return Err(account_refresh_error(error));
             }
-            return self.fetch_with_credentials(refreshed).await;
+            return self.fetch_with_credentials(refreshed, &gate_key).await;
         }
         result
     }
@@ -493,14 +499,16 @@ impl ClaudeOAuthFetcher {
             rate_limit_tier: None,
         };
 
-        self.fetch_with_credentials(credentials).await
+        let gate_key = usage_gate::account_key(None, &credentials.access_token);
+        self.fetch_with_credentials(credentials, &gate_key).await
     }
 
     async fn fetch_with_credentials(
         &self,
         credentials: ClaudeOAuthCredentials,
+        gate_key: &str,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let usage_response = self.fetch_usage(&credentials).await?;
+        let usage_response = self.fetch_usage(&credentials, gate_key).await?;
         let mut usage = self.build_usage_snapshot(&usage_response, &credentials);
         let spend_cost = apply_spend_only_extra_usage(&mut usage, &usage_response);
         // Header email only; a profile failure leaves the usage result intact.
@@ -652,6 +660,7 @@ impl ClaudeOAuthFetcher {
     pub async fn fetch_usage(
         &self,
         credentials: &ClaudeOAuthCredentials,
+        gate_key: &str,
     ) -> Result<OAuthUsageResponse, ProviderError> {
         if credentials.is_expired() {
             return Err(ProviderError::OAuthExpired(
@@ -668,8 +677,7 @@ impl ClaudeOAuthFetcher {
             )));
         }
 
-        let fingerprint = usage_gate::token_fingerprint(&credentials.access_token);
-        if let Some(result) = Self::gate_precheck(&USAGE_GATE, usage_gate::now_ms(), &fingerprint) {
+        if let Some(result) = Self::gate_precheck(&USAGE_GATE, usage_gate::now_ms(), gate_key) {
             return result;
         }
 
@@ -724,7 +732,7 @@ impl ClaudeOAuthFetcher {
                 let backoff = USAGE_GATE
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .record_rate_limit(usage_gate::now_ms(), &fingerprint, retry_after);
+                    .record_rate_limit(usage_gate::now_ms(), gate_key, retry_after);
                 return Err(Self::rate_limited_error(backoff));
             }
 
@@ -744,7 +752,7 @@ impl ClaudeOAuthFetcher {
         USAGE_GATE
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .record_success(usage_gate::now_ms(), &fingerprint, body);
+            .record_success(usage_gate::now_ms(), gate_key, body);
         Ok(usage)
     }
 

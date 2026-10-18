@@ -27,7 +27,11 @@ pub(crate) enum AccountMenuAction {
     SwitchGrokAccount(String),
 }
 
-pub(crate) fn prepend_account_menus(spec: &mut Vec<TrayMenuEntry>, settings: &Settings) {
+pub(crate) fn prepend_account_menus(
+    spec: &mut Vec<TrayMenuEntry>,
+    settings: &Settings,
+    claude_usage: &HashMap<String, crate::commands::ClaudeAccountUsageState>,
+) {
     let accounts = crate::commands::load_codex_accounts().unwrap_or_default();
     let active =
         codexbar::codex_accounts::CodexAccountManager::new().discover_ambient_account(&accounts);
@@ -48,6 +52,7 @@ pub(crate) fn prepend_account_menus(spec: &mut Vec<TrayMenuEntry>, settings: &Se
             &claude_accounts,
             settings.ui_language,
             settings.hide_personal_info,
+            claude_usage,
         ),
     );
 
@@ -284,13 +289,56 @@ fn hidden_account_label(lang: Language, ordinal: usize) -> String {
     format!("{word} {ordinal}")
 }
 
+/// Session and weekly percentages for one Claude account row, from the last
+/// successful check recorded for that account. No recorded check, no percentage.
+/// A window whose reset time has passed is skipped: the stored percentage is
+/// known to be stale (restored cache, failed checks, or refresh turned off).
+fn claude_usage_summary(
+    lang: Language,
+    state: Option<&crate::commands::ClaudeAccountUsageState>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<String> {
+    let usage = state?.usage.as_ref()?;
+    let parts: Vec<String> = [
+        (LocaleKey::ProviderSessionLabel, usage.five_hour.as_ref()),
+        (LocaleKey::ProviderWeeklyLabel, usage.seven_day.as_ref()),
+    ]
+    .into_iter()
+    .filter_map(|(key, window)| {
+        window
+            .filter(|window| !window_has_reset(window, now))
+            .map(|window| {
+                format!(
+                    "{} {:.0}%",
+                    locale::get_text(lang, key),
+                    window.used_percent
+                )
+            })
+    })
+    .collect();
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
+fn window_has_reset(
+    window: &crate::commands::ClaudeAccountWindow,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    window
+        .resets_at
+        .as_deref()
+        .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+        .is_some_and(|at| at <= now)
+}
+
 fn claude_accounts_menu(
     accounts: &[codexbar::providers::claude::accounts::ClaudeAccount],
     lang: Language,
     hide_personal_info: bool,
+    usage: &HashMap<String, crate::commands::ClaudeAccountUsageState>,
 ) -> TrayMenuEntry {
     let text = |key| locale::get_text(lang, key);
     let ordinals = ordinals_by_sorted_id(accounts.iter().map(|account| account.id.as_str()));
+    let now = chrono::Utc::now();
     let mut children: Vec<_> = accounts
         .iter()
         .map(|account| {
@@ -301,6 +349,10 @@ fn claude_accounts_menu(
                     || account.email.clone(),
                     |org| format!("{} ({org})", account.email),
                 )
+            };
+            let label = match claude_usage_summary(lang, usage.get(&account.id), now) {
+                Some(summary) => format!("{label} - {summary}"),
+                None => label,
             };
             let mut entry = TrayMenuEntry::check_item(
                 format!("switch_claude_account:{}", account.id),
@@ -570,7 +622,8 @@ mod tests {
             is_saved: true,
             ..current.clone()
         };
-        let menu = claude_accounts_menu(&[current, saved], Language::English, false);
+        let menu =
+            claude_accounts_menu(&[current, saved], Language::English, false, &HashMap::new());
         assert_eq!(menu.id.as_deref(), Some("claude_accounts"));
         assert_eq!(menu.children[0].checked, Some(true));
         assert!(menu.children[0].disabled);
@@ -581,9 +634,93 @@ mod tests {
         assert!(!menu.children[1].disabled);
         assert!(menu_contains(&menu.children, "add_claude_account"));
         assert!(menu_contains(
-            &claude_accounts_menu(&[], Language::English, false).children,
+            &claude_accounts_menu(&[], Language::English, false, &HashMap::new()).children,
             "add_claude_account"
         ));
+    }
+
+    #[test]
+    fn claude_rows_show_each_accounts_last_recorded_usage() {
+        use crate::commands::{ClaudeAccountUsage, ClaudeAccountUsageState, ClaudeAccountWindow};
+        let accounts = [claude_menu_account("a:org"), claude_menu_account("b:org")];
+        let mut usage = HashMap::new();
+        usage.insert(
+            "a:org".to_string(),
+            ClaudeAccountUsageState {
+                usage: Some(ClaudeAccountUsage {
+                    five_hour: Some(ClaudeAccountWindow {
+                        used_percent: 42.4,
+                        resets_at: None,
+                    }),
+                    seven_day: Some(ClaudeAccountWindow {
+                        used_percent: 10.0,
+                        resets_at: None,
+                    }),
+                    updated_at: "2026-10-18T00:00:00+00:00".into(),
+                }),
+                ..Default::default()
+            },
+        );
+        usage.insert(
+            "b:org".to_string(),
+            ClaudeAccountUsageState {
+                usage_error: Some("Claude usage check failed. Will retry automatically.".into()),
+                ..Default::default()
+            },
+        );
+        let menu = claude_accounts_menu(&accounts, Language::English, false, &usage);
+        let session = locale::get_text(Language::English, LocaleKey::ProviderSessionLabel);
+        let weekly = locale::get_text(Language::English, LocaleKey::ProviderWeeklyLabel);
+        assert_eq!(
+            menu.children[0].label,
+            format!("a:org@example.com - {session} 42%, {weekly} 10%")
+        );
+        // A row with no successful check recorded shows no percentage.
+        assert_eq!(menu.children[1].label, "b:org@example.com");
+    }
+
+    #[test]
+    fn claude_usage_summary_skips_windows_past_their_reset() {
+        use crate::commands::{ClaudeAccountUsage, ClaudeAccountUsageState, ClaudeAccountWindow};
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-18T12:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let state = |five_hour: Option<&str>, seven_day: Option<&str>| ClaudeAccountUsageState {
+            usage: Some(ClaudeAccountUsage {
+                five_hour: Some(ClaudeAccountWindow {
+                    used_percent: 42.0,
+                    resets_at: five_hour.map(String::from),
+                }),
+                seven_day: Some(ClaudeAccountWindow {
+                    used_percent: 10.0,
+                    resets_at: seven_day.map(String::from),
+                }),
+                updated_at: "2026-10-18T00:00:00+00:00".into(),
+            }),
+            ..Default::default()
+        };
+        let session = locale::get_text(Language::English, LocaleKey::ProviderSessionLabel);
+        let weekly = locale::get_text(Language::English, LocaleKey::ProviderWeeklyLabel);
+
+        let expired_session = state(Some("2026-10-18T05:00:00Z"), Some("2026-10-20T00:00:00Z"));
+        assert_eq!(
+            claude_usage_summary(Language::English, Some(&expired_session), now),
+            Some(format!("{weekly} 10%"))
+        );
+        let both_expired = state(
+            Some("2026-10-18T12:00:00Z"),
+            Some("2026-10-17T00:00:00+02:00"),
+        );
+        assert_eq!(
+            claude_usage_summary(Language::English, Some(&both_expired), now),
+            None
+        );
+        // Missing or unparseable reset times keep the window.
+        let unknown = state(None, Some("not a date"));
+        assert_eq!(
+            claude_usage_summary(Language::English, Some(&unknown), now),
+            Some(format!("{session} 42%, {weekly} 10%"))
+        );
     }
 
     #[test]
@@ -656,7 +793,12 @@ mod tests {
             is_active: true,
             is_saved: true,
         };
-        let claude_menu = claude_accounts_menu(&[claude, claude_other], Language::English, true);
+        let claude_menu = claude_accounts_menu(
+            &[claude, claude_other],
+            Language::English,
+            true,
+            &HashMap::new(),
+        );
         let grok_menu = grok_accounts_menu(&[grok], Language::English, true);
         let labels: Vec<&str> = claude_menu.children[..2]
             .iter()
@@ -680,6 +822,7 @@ mod tests {
             ],
             Language::English,
             true,
+            &HashMap::new(),
         );
         let by_id: Vec<(&str, &str)> = reordered.children[..3]
             .iter()
