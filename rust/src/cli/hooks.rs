@@ -298,7 +298,7 @@ async fn hooks_watch_observation(
     match provider.fetch_usage(&ctx).await {
         Ok(result) => {
             let usage = &result.usage;
-            let account = usage.account_email.clone();
+            let account = hook_account_display_name(settings, usage);
             let account_discriminator = result
                 .account_identity()
                 .map(str::trim)
@@ -324,6 +324,23 @@ async fn hooks_watch_observation(
             account_discriminator: None,
         },
     }
+}
+
+/// Account shown in hook payloads; `None` when personal info is hidden,
+/// matching the desktop hook dispatchers.
+fn hook_account_display_name(
+    settings: &Settings,
+    usage: &crate::core::UsageSnapshot,
+) -> Option<String> {
+    if settings.hide_personal_info {
+        return None;
+    }
+    usage
+        .account_email
+        .as_deref()
+        .map(str::trim)
+        .filter(|email| !email.is_empty())
+        .map(str::to_string)
 }
 
 fn hooks_watch_lanes(
@@ -718,6 +735,38 @@ Options:
         assert!(e.remaining_percent.unwrap() < 20.0);
         assert_eq!(e.provider, "claude");
         assert!(e.environment_variables().contains_key("CODEXBAR_PROVIDER"));
+    }
+
+    #[test]
+    fn hide_personal_info_omits_the_hook_account() {
+        let mut usage = crate::core::UsageSnapshot::new(RateWindow::new(40.0));
+        usage.account_email = Some("person@example.com".to_string());
+        let mut settings = Settings::default();
+
+        assert_eq!(
+            hook_account_display_name(&settings, &usage).as_deref(),
+            Some("person@example.com")
+        );
+        let lanes = hooks_watch_lanes(
+            ProviderId::Codex,
+            &usage,
+            &settings,
+            hook_account_display_name(&settings, &usage).as_deref(),
+        );
+        assert_eq!(
+            lanes[0].account_display_name.as_deref(),
+            Some("person@example.com")
+        );
+
+        settings.hide_personal_info = true;
+        assert_eq!(hook_account_display_name(&settings, &usage), None);
+        let lanes = hooks_watch_lanes(
+            ProviderId::Codex,
+            &usage,
+            &settings,
+            hook_account_display_name(&settings, &usage).as_deref(),
+        );
+        assert!(lanes.iter().all(|lane| lane.account_display_name.is_none()));
     }
 
     #[test]
