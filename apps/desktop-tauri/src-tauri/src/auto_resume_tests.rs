@@ -35,18 +35,9 @@ mod tests {
             remaining_percent: 100.0 - used_percent,
             window_minutes: Some(300),
             resets_at: Some(Utc::now().to_rfc3339()),
-            reset_description: None,
             is_exhausted: exhausted,
             is_informational: informational,
-            reserve_percent: None,
-            reserve_description: None,
-            reserve_will_last_to_reset: false,
-            reserve_eta_seconds: None,
-            pace: None,
-            monthly_limit_block: None,
-            description_is_detail: false,
-            reset_regenerates: false,
-            hidden_on_card: false,
+            ..Default::default()
         }
     }
 

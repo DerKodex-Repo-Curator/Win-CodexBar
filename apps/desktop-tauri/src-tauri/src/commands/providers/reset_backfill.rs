@@ -70,7 +70,7 @@ fn backfill_slot_window(
         return;
     };
     // A stale reset is worse than a missing one.
-    let Ok(cached_dt) = chrono::DateTime::parse_from_rfc3339(cached_reset) else {
+    let Some(cached_dt) = crate::commands::parse_utc(cached_reset) else {
         return;
     };
     let now = chrono::Utc::now();
@@ -103,18 +103,7 @@ mod tests {
             remaining_percent: 100.0 - used,
             window_minutes: Some(300),
             resets_at: resets_at.map(String::from),
-            reset_description: None,
-            is_exhausted: false,
-            is_informational: false,
-            reserve_percent: None,
-            reserve_description: None,
-            reserve_will_last_to_reset: false,
-            reserve_eta_seconds: None,
-            pace: None,
-            monthly_limit_block: None,
-            description_is_detail: false,
-            reset_regenerates: false,
-            hidden_on_card: false,
+            ..Default::default()
         }
     }
 
@@ -123,36 +112,8 @@ mod tests {
             provider_id: "codex".into(),
             display_name: "Codex".into(),
             primary,
-            primary_label: None,
-            secondary: None,
-            secondary_label: None,
-            secondary_label_key: None,
-            model_specific: None,
-            tertiary: None,
-            tertiary_label: None,
-            extra_rate_windows: Vec::new(),
-            inventory: Vec::new(),
-            display_details: Vec::new(),
-            cost: None,
-            plan_name: None,
-            account_email: None,
-            account_label: None,
-            subscription: None,
-            source_label: String::new(),
-            has_successful_claude_cli_quota: false,
             updated_at: "2026-01-01T00:00:00Z".into(),
-            error: None,
-            error_state: codexbar::core::ProviderStateKind::Ready,
-            pace: None,
-            pace_authoritative: true,
-            account_organization: None,
-            tray_status_label: None,
-            fetch_duration_ms: None,
-            wayfinder_usage: None,
-            quota_burndown: None,
-            open_ai_api_usage: None,
-            throughput: None,
-            session_equivalent_forecast: None,
+            ..Default::default()
         }
     }
 
