@@ -230,7 +230,9 @@ fn local_usage_today_hides_known_zero_and_unknown_cost_but_keeps_tokens() {
 
 #[test]
 fn a_scan_that_finishes_after_track_costs_went_off_is_not_cached() {
-    use super::{cached_provider_local_usage_summary, store_scanned_local_usage_summary};
+    use super::local_usage_cache::{
+        cached_provider_local_usage_summary, store_scanned_local_usage_summary,
+    };
     let summary = || ProviderLocalUsageSummary {
         today_cost: Some(1.25),
         thirty_day_cost: Some(12.5),
